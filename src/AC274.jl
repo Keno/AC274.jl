@@ -1,5 +1,7 @@
 # AC 274 Assignment 1
 
+module AC274
+
 # Note, this is a quick-and-dirty implementation.
 # It's lacking abstraction and performance and it is simply meant 
 # to be quick to write and easy to understand. 
@@ -7,8 +9,10 @@
 using Polynomial
 using Gadfly
 
-import Base: getindex, start, next, done, length
+import Base: getindex, start, next, done, length, size
 
+
+export neighbor, has_neighbor
 
 # Mesh generation
 
@@ -34,7 +38,7 @@ end
 # mesh a finite cochain complex rather than the coordinate neighborhoods of a
 # smooth manifold (in particular they are not overlapping), but I don't have 
 # defer that to a later time.
-atlas(m::Mesh1D) = (k,x)->((m.elements[k]+(1/2)*step(m.elements))-x)/step(m.elements)
+atlas(m::Mesh1D) = (k,x)->(2*(x-m.elements[k])/step(m.elements) - 1)
 
 invatlas(m::Mesh1D) = (k,x)->( m.elements[k] + (1/2)*(1+x)*(step(m.elements)) )
 
@@ -69,7 +73,7 @@ end
 
 length(x::Mesh1D) = length(x.elements) - 1
 start(x::Mesh1D) = 1
-next(x::Mesh1D,i) = (i,i+1)
+next(x::Mesh1D,i) = (x[i],i+1)
 done(x::Mesh1D,i) = i > length(x)
 
 generateMesh(::Type{Mesh1D},a,b,K; periodic=false) =  Mesh1D(a:((b-a)/K):b, periodic)
@@ -84,7 +88,7 @@ end
 # Interpolation basis
 
 # Chebyshev nodes
-nodes(p) = [cos((2i-1)/(2p)*pi) for i = 1:p]
+nodes(p) = reverse([cos((2i-1)/(2p)*pi) for i = 1:p])
 #nodes(p) = [-1,-1/3,1/3,1]
 
 phi(nodes::Vector) = (x = Poly([0.0,1.0]); [Poly([1.0])*prod([k == i ? 1 : (x-nodes[i])/(nodes[k]-nodes[i]) for i=1:length(nodes)]) for k=1:length(nodes)])
@@ -94,7 +98,6 @@ phi(p::Int64) = phi(nodes(p+1))
 integrate(poly::Poly, a, b) = -(map(x->fapply(Polynomial.integrate(poly),x),(b,a))...)
 integrate(x::Number, a, b) = x*(b-a)
 
-# In general, Gauss-Kronrod quadrature of order 7
 integrate(x::Function, a, b) = quadgk(x,a,b;order=7)[1]
 
 # Driver code
@@ -114,9 +117,10 @@ type DG1D <: Simulation
     q₀
     mesh::Any
     inflow::Function
+    hackinextraflux::Bool
     DG1D(p, K, a::Float64, b::Float64, fflux::Function, Δt::Float64,
-        nt::Int64, C::Float64, q₀; mesh = nothing, inflow = t->0) = 
-        new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,inflow)
+        nt::Int64, C::Float64, q₀; mesh = nothing, inflow = t->0, hackinextraflux=false) = 
+        new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,inflow,hackinextraflux)
 end
 
 immutable Coeffs{N} 
@@ -135,8 +139,9 @@ fapply(x::Number,y) = x
 +{N}(x::Coeffs{N},y::Vector{Float64}) = Coeffs{N}(x.coeffs+y)
 -{N}(x::Coeffs{N},y::Vector{Float64}) = Coeffs{N}(x.coeffs-y)
 *{N}(s::Number, x::Coeffs{N}) = Coeffs{N}(s*x.coeffs)
-.*{N}(s::Number, x::Coeffs{N}) = Coeffs{N}(s.*x.coeffs)
+.*{N}(s, x::Coeffs{N}) = Coeffs{N}(s.*x.coeffs)
 .^{N}(s::Coeffs{N}, y) = Coeffs{N}(s.coeffs.^y)
+size(x::Coeffs) = size(x.coeffs)
 
 for f in (:getindex, :start, :done, :next, :length)
     @eval ($f)(x::Coeffs,args...) = ($f)(x.coeffs,args...)
@@ -155,6 +160,12 @@ function evaluate{N}(coeffs::Coeffs{N},basis)
     sum([a*f for (f,a) in zip(coeffs,basis)])
 end
 
+function evaluate{N}(coeffs::Coeffs{N},basis,p)
+    order(basis) == order(basis) || error("Basis and vector must agree")
+    sum([a*fapply(f,p) for (a,f) in zip(coeffs,basis)])
+end
+
+
 # ElemJacobian
 elemJ(x,k) = (1//2)*(x.mesh[k,:r] - x.mesh[k,:l])
 
@@ -162,6 +173,8 @@ elemJ(x,k) = (1//2)*(x.mesh[k,:r] - x.mesh[k,:l])
 
 ⊗(arg::Union(Poly,Number),args::Union(Poly,Number)...) = *(arg,args...)
 ⊗(f::Function,fs::Function...) = x->*(f(x),[f(x) for f in fs]...)
+⊖(f,g) = x->fapply(f,x)-fapply(g,x)
+∘(f,g) = x->fapply(f,fapply(g,x))
 
 Mlocal(p::DG1D,k,basis) = Float64[integrate(⊗(basis[i],basis[j],elemJ(p,k)),-1,1) for i=1:(p.p+1), j=1:(p.p+1) ]
 M(p::DG1D) = (basis = phi(p.p); Diagonal([Mlocal(p,k,basis) for k in p.mesh]))
@@ -173,14 +186,18 @@ oppcoord(face) = -coord(face)
 n⁻(face) = face == :l ? -1 : 1
 
 function RHS(p,k,Q,t)
-    basis = phi(p.p)
+    ns = nodes(p.p+1)
+    basis = phi(ns)
     dphi = derivative(basis)
+    𝜒⁻¹ = invatlas(p.mesh)
 
-    Fk = p.fflux(Q[k])
+    Fk = p.fflux(Q[k],map(x->𝜒⁻¹(k,x),ns),t)
     vRHS = Float64[ sum([ Fk[j]*integrate(⊗(basis[j],dphi[i]),-1,1) for j = 1:(p.p+1) ]) for i = 1:(p.p+1)]
 
     cell = p.mesh[k]
     for face in cell
+
+        x = cell[face]
 
         q⁻ = fapply(evaluate(Q[k],basis),coord(face))
 
@@ -193,18 +210,24 @@ function RHS(p,k,Q,t)
             # f﹡ϕ_i(x_r)n-
             vRHS[:] -= 
                 n⁻(face) * fapply(basis,coord(face)) * (
-                    (1//2)*(p.fflux(q⁻) + p.fflux(q⁺)) + # average term
+                    (1//2)*(p.fflux(q⁻,x,t) + p.fflux(q⁺,x,t)) + # average term
                     (1//2)*p.C*( q⁻ - q⁺ )*n⁻(face) # Jump term
                 )
+
+            if p.hackinextraflux
+            # Hack in extra flux
+            vRHS[:] -= -integrate(x->(fapply(evaluate(Q[k],basis),𝜒⁻¹(cell.coord,x))*fapply(basis,𝜒⁻¹(cell.coord,x))*
+                (2*t*(x^2-1)-2*x*(x^2+1)^2)/(2t*x + (x^2+1)^2)^2),cell.left,cell.right)
+            end
         else 
-            vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻)
+            vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,x,t)
             
             # boundary conditions
             # Outflow BC
             if face == :r
-                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻)
+                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,x,t)
             elseif face == :l
-                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * p.fflux(p.inflow(t))
+                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * p.fflux(p.inflow(t),x,t)
             end
         end
     end
@@ -235,7 +258,7 @@ function _solve(p, ℚ)
 end
 
 # Nodal interpolation
-interpolate(f, nodes) = Coeffs{length(nodes)}(reverse(map(f,nodes)))
+interpolate(f, nodes) = Coeffs{length(nodes)}(map(f,nodes))
 
 function solve(p::DG1D)
     if p.mesh === nothing
@@ -264,13 +287,30 @@ function solve(p::DG1D)
     _solve(p,ℚ)
 end
 
-function plotSolution(p::DG1D,Q)
+function pf(p,mesh,a,b,Q)
+    𝜒 = atlas(mesh)
+    basis = phi(p+1)
+    function (x)
+        k = min(1+div(x-a,(b-a)/K),K)
+        poly = evaluate(Q[k],basis)
+        fapply(poly,(𝜒(k,x)))
+    end
+end
+
+function pf(p,Q)
     𝜒 = atlas(p.mesh)
     basis = phi(p.p)
-    plot(function (x)
-        k = 1+div(x-p.a,(p.b-p.a)/p.K)
-        fapply(evaluate(Q[k],basis),(𝜒(k,x)))
-    end,p.a,p.b)
+    function (x)
+        k = min(1+div(x-p.a,(p.b-p.a)/p.K),p.K)
+        poly = evaluate(Q[k],basis)
+        fapply(poly,(𝜒(k,x)))
+    end
 end
+
+plotSolution(p::DG1D,Q) = plot(pf(p,Q),p.a,p.b)
+
+end
+
+include("2d.jl")
 
 ## End of library code
