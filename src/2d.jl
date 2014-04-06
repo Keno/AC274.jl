@@ -101,9 +101,6 @@ p0ϕ1(ξ,η) = 1
 const P0 = [p0ϕ1]
 const N0 = [Vertex2(1//3,1//3)]
 
-const invchi = 𝜒⁻¹
-const chi = 𝜒
-
 p1ϕ1(ξ,η) = 1 - ξ - η
 p1ϕ2(ξ,η) = ξ
 p1ϕ3(ξ,η) = η
@@ -360,7 +357,7 @@ function drawNormals(m::Meshes.Mesh{Vertex2},edges::Vector{Edge},w,h; inward=fal
     c
 end
 
-using Winston
+#using Winston
 
 #colorbar
 function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._current_colormap, kvs...)

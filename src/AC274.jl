@@ -3,16 +3,17 @@
 module AC274
 
 # Note, this is a quick-and-dirty implementation.
-# It's lacking abstraction and performance and it is simply meant 
-# to be quick to write and easy to understand. 
+# It's lacking abstraction and performance and it is simply meant
+# to be quick to write and easy to understand.
 
-using Polynomial
+using Polynomials
 using Gadfly
 
-import Base: getindex, start, next, done, length, size
+import Base: getindex, start, next, done, length, size, eltype, promote_rule
 
 
-export neighbor, has_neighbor
+export neighbor, has_neighbor, DG1D, solve, generateMesh, Mesh1D, 
+    plotSolution, invchi, chi, 𝜒⁻¹, 𝜒
 
 # Mesh generation
 
@@ -34,13 +35,14 @@ immutable Mesh1D <: Mesh
     isperiodic::Bool
 end
 
-# This terminology is slightly misleading as we probably should consider the
-# mesh a finite cochain complex rather than the coordinate neighborhoods of a
-# smooth manifold (in particular they are not overlapping), but I don't have 
-# defer that to a later time.
-atlas(m::Mesh1D) = (k,x)->(2*(x-m.elements[k])/step(m.elements) - 1)
+𝜒(m::Mesh1D,k,x) = 2*(x-m.elements[k])/step(m.elements) - 1
+𝜒⁻¹(m::Mesh1D,k,x) = m.elements[k] + (1/2)*(1+x)*(step(m.elements))
+𝜒(m::Mesh1D,c::Cell1D,x) = 𝜒(m,c.coord,x)
+𝜒⁻¹(m::Mesh1D,c::Cell1D,x) = 𝜒⁻¹(m,c.coord,x)
 
-invatlas(m::Mesh1D) = (k,x)->( m.elements[k] + (1/2)*(1+x)*(step(m.elements)) )
+
+const invchi = 𝜒⁻¹
+const chi = 𝜒
 
 function has_neighbor(m::Mesh1D, cell, face)
     m.isperiodic && return true
@@ -48,9 +50,9 @@ function has_neighbor(m::Mesh1D, cell, face)
         return false
     elseif cell.coord == length(m.elements)-1 && face == :r
         return false
-    else 
+    else
         return true
-    end 
+    end
 end
 
 function neighbor(m::Mesh1D, cell, face)
@@ -80,7 +82,7 @@ generateMesh(::Type{Mesh1D},a,b,K; periodic=false) =  Mesh1D(a:((b-a)/K):b, peri
 
 getindex(m::Mesh1D, cell::Int64) = Cell1D(m.elements[cell], m.elements[cell+1], cell)
 getindex(m::Mesh1D, cell::Int64, face) = m[cell][face]
-function getindex(c::Cell1D, face) 
+function getindex(c::Cell1D, face)
     @assert face == :r || face == :l
     (face == :r) ? c.right : c.left
 end
@@ -94,11 +96,18 @@ nodes(p) = reverse([cos((2i-1)/(2p)*pi) for i = 1:p])
 phi(nodes::Vector) = (x = Poly([0.0,1.0]); [Poly([1.0])*prod([k == i ? 1 : (x-nodes[i])/(nodes[k]-nodes[i]) for i=1:length(nodes)]) for k=1:length(nodes)])
 phi(p::Int64) = phi(nodes(p+1))
 
-
-integrate(poly::Poly, a, b) = -(map(x->fapply(Polynomial.integrate(poly),x),(b,a))...)
+integrate(poly::Poly, a, b) = (pp = polyint(poly); fapply(pp,b) - fapply(pp,a))
 integrate(x::Number, a, b) = x*(b-a)
 
-integrate(x::Function, a, b) = quadgk(x,a,b;order=7)[1]
+const gp = Base.gauss(Float64, 7)
+function integrate(f::Function,a, b)
+    @assert a == -1 && b == 1
+    result = 0.0
+    for (x,w) in zip(gp...)
+        result += w*f(x)
+    end
+    result
+end
 
 # Driver code
 
@@ -108,7 +117,7 @@ abstract Simulation
 type DG1D <: Simulation
     p::Int64 # The order of ϕ
     K::Int64 # The number of cells to use
-    a::Float64 # [a,b] is the interval on which to cumpute 
+    a::Float64 # [a,b] is the interval on which to cumpute
     b::Float64 #
     fflux::Function # The numerical flux function
     Δt::Float64 # Time-step
@@ -116,31 +125,38 @@ type DG1D <: Simulation
     C::Float64 # Diffusion constant
     q₀
     mesh::Any
-    inflow::Function
+    boundary::Function
     hackinextraflux::Bool
+    useMUSCL::Bool
     DG1D(p, K, a::Float64, b::Float64, fflux::Function, Δt::Float64,
-        nt::Int64, C::Float64, q₀; mesh = nothing, inflow = t->0, hackinextraflux=false) = 
-        new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,inflow,hackinextraflux)
+        nt::Int64, C::Float64, q₀; mesh = nothing, boundary = t->zero(typeof(q₀(0))), hackinextraflux=false, useMUSCL = false) =
+        new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,boundary,hackinextraflux, useMUSCL)
 end
 
-immutable Coeffs{N} 
-    coeffs::Vector{Float64} #NTuple{N,Float64}
+immutable Coeffs{N,T}
+    coeffs::Vector{T} #NTuple{N,Float64}
 end
+Coeffs{T}(N,x::Vector{T}) = (Coeffs{N,T}(x))
 
 order(x::Coeffs) = length(x.coeffs) #N
 order(x::Vector) = length(x)
+eltype{N,T}(c::Coeffs{N,T}) = T
+eltype{N,T}(::Type{Coeffs{N,T}}) = T
 
-fapply(f::Poly,x) = papply(f,x)
-fapply(vec::Vector,x) = map(f->fapply(f,x),vec)
+fapply(f::Poly,x) = polyval(f,x)
+fapply(vec::Vector,x) = [fapply(f,x) for f in vec]
 fapply(f,x) = f(x)
 fapply(x::Number,y) = x
 
-+{N}(x::Coeffs{N}, y::Coeffs{N}) = Coeffs{N}(x.coeffs+y.coeffs)
-+{N}(x::Coeffs{N},y::Vector{Float64}) = Coeffs{N}(x.coeffs+y)
--{N}(x::Coeffs{N},y::Vector{Float64}) = Coeffs{N}(x.coeffs-y)
-*{N}(s::Number, x::Coeffs{N}) = Coeffs{N}(s*x.coeffs)
-.*{N}(s, x::Coeffs{N}) = Coeffs{N}(s.*x.coeffs)
-.^{N}(s::Coeffs{N}, y) = Coeffs{N}(s.coeffs.^y)
+promote_rule{N,T}(::Type{Coeffs{N,T}},::Type{Coeffs{N,T}}) = Coeffs{N,T}
+promote_rule{N,T,S<:Number}(::Type{Coeffs{N,T}},::Type{S}) = Coeffs{N,T}
+
++{N,T}(x::Coeffs{N,T}, y::Coeffs{N,T}) = Coeffs{N,T}(x.coeffs+y.coeffs)
++{N,T}(x::Coeffs{N,T},y::Vector{Float64}) = Coeffs{N,T}(x.coeffs+y)
+-{N,T}(x::Coeffs{N,T},y::Vector{Float64}) = Coeffs{N,T}(x.coeffs-y)
+*{N,T}(s::Number, x::Coeffs{N,T}) = Coeffs{N,T}(s*x.coeffs)
+.*{N,T}(s, x::Coeffs{N,T}) = Coeffs{N,T}(s.*x.coeffs)
+.^{N,T}(s::Coeffs{N,T}, y) = Coeffs{N,T}(s.coeffs.^y)
 size(x::Coeffs) = size(x.coeffs)
 
 for f in (:getindex, :start, :done, :next, :length)
@@ -149,20 +165,24 @@ end
 
 import Base: zero, one, zeros, ones, conj
 
-zero{N}(::Type{Coeffs{N}}) = Coeffs{N}(zeros(Float64,N))
-one{N}(::Type{Coeffs{N}}) = Coeffs{N}(ones(Float64,N))
-zeros{N}(::Type{Coeffs{N}},n) = [zero(Coeffs{N}) for _=1:n]
-ones{N}(::Type{Coeffs{N}},n) = [one(Coeffs{N}) for _=1:n]
+zero{N,T}(::Type{Coeffs{N,T}}) = Coeffs{N,T}(zeros(Float64,N))
+one{N,T}(::Type{Coeffs{N,T}}) = Coeffs{N,T}(ones(Float64,N))
+zeros{N,T}(::Type{Coeffs{N,T}},n) = [zero(Coeffs{N,T}) for _=1:n]
+ones{N,T}(::Type{Coeffs{N,T}},n) = [one(Coeffs{N,T}) for _=1:n]
 conj(x::Coeffs) = x
 
-function evaluate{N}(coeffs::Coeffs{N},basis)
-    order(basis) == order(basis) || error("Basis and vector must agree")
+function evaluate{N,T}(coeffs::Coeffs{N,T},basis)
+    order(coeffs) == order(basis) || error("Basis and vector must agree")
     sum([a*f for (f,a) in zip(coeffs,basis)])
 end
 
-function evaluate{N}(coeffs::Coeffs{N},basis,p)
-    order(basis) == order(basis) || error("Basis and vector must agree")
-    sum([a*fapply(f,p) for (a,f) in zip(coeffs,basis)])
+function evaluate{N,T}(coeffs::Coeffs{N,T},basis,p)
+    order(coeffs) == order(basis) || error("Basis and vector must agree")
+    result = 0.0
+    for i = 1:length(basis)
+        result += coeffs[i]*fapply(basis[i],p)
+    end
+    result
 end
 
 
@@ -185,132 +205,208 @@ oppcoord(face) = -coord(face)
 
 n⁻(face) = face == :l ? -1 : 1
 
-function RHS(p,k,Q,t)
+immutable Cache
+    phidphi::Array{Float64,2}
+    basis::Array{Poly{Float64},1}
+    dphi::Array{Poly{Float64},1}
+    ns::Array{Float64,1}
+end
+
+function generateMatrices(p)
     ns = nodes(p.p+1)
     basis = phi(ns)
-    dphi = derivative(basis)
-    𝜒⁻¹ = invatlas(p.mesh)
+    dphi = polyder(basis)
 
-    Fk = p.fflux(Q[k],map(x->𝜒⁻¹(k,x),ns),t)
-    vRHS = Float64[ sum([ Fk[j]*integrate(⊗(basis[j],dphi[i]),-1,1) for j = 1:(p.p+1) ]) for i = 1:(p.p+1)]
+    phidphi = [integrate(⊗(basis[j],dphi[i]),-1,1) for j = 1:(p.p+1), i = 1:(p.p+1)]
+    Cache(phidphi,basis,dphi,ns)
+end
+
+function RHS(p,k,Q,t; cache=generateMatrices(p))
+    basis, dphi, ns = cache.basis, cache.dphi, cache.ns
+
+    Qk = Q[k]
+    Fk = typeof(Qk)([p.fflux(e,[𝜒⁻¹(p.mesh,k,x) for x in ns],t)::typeof(e) for e in Qk])
+    vRHS = zeros(eltype(Fk),p.p+1)
+    for i = 1:p.p+1, j = 1:p.p+1
+        vRHS[i] += Fk[j]*cache.phidphi[j,i]
+    end
 
     cell = p.mesh[k]
     for face in cell
 
         x = cell[face]
 
-        q⁻ = fapply(evaluate(Q[k],basis),coord(face))
+        q⁻ = evaluate(Qk,basis,coord(face))
 
         if has_neighbor(p.mesh, cell, face)
 
-            
-            q⁺ = fapply(evaluate(Q[neighbor(p.mesh, cell, face).coord],basis),oppcoord(face))
-            normal = n⁻(face)
+            q⁺ =  evaluate(Q[neighbor(p.mesh, cell, face).coord],basis,oppcoord(face))
 
             # f﹡ϕ_i(x_r)n-
-            vRHS[:] -= 
-                n⁻(face) * fapply(basis,coord(face)) * (
-                    (1//2)*(p.fflux(q⁻,x,t) + p.fflux(q⁺,x,t)) + # average term
-                    (1//2)*p.C*( q⁻ - q⁺ )*n⁻(face) # Jump term
-                )
+            f1 = n⁻(face) * (
+                (1/2)*(p.fflux(q⁻,x,t)::typeof(q⁻) + p.fflux(q⁺,x,t)::typeof(q⁺)) + # average term
+                (1/2)*p.C*( q⁻ - q⁺ )*n⁻(face) # Jump term
+            )
+            for i=1:p.p+1
+                vRHS[i] -= f1*fapply(basis[i],coord(face))
+            end
 
             if p.hackinextraflux
             # Hack in extra flux
-            vRHS[:] -= -integrate(x->(fapply(evaluate(Q[k],basis),𝜒⁻¹(cell.coord,x))*fapply(basis,𝜒⁻¹(cell.coord,x))*
-                (2*t*(x^2-1)-2*x*(x^2+1)^2)/(2t*x + (x^2+1)^2)^2),cell.left,cell.right)
+            vRHS[:] -= -integrate(x->(y = 𝜒(p.Mesh1D,k,x);fapply(evaluate(Qk,basis),x)*fapply(basis,x)*
+                (2*t*(y^2-1)-2*y*(y^2+1)^2)/(2t*y + (y^2+1)^2)^2),-1,1)
             end
-        else 
-            vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,x,t)
-            
+        else
+            vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,x,t)::typeof(q⁻)
+
             # boundary conditions
-            # Outflow BC
-            if face == :r
-                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,x,t)
-            elseif face == :l
-                vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * p.fflux(p.inflow(t),x,t)
-            end
+            vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1/2)*p.fflux(p.boundary(q⁻,t,face),x,t)::typeof(q⁻)
         end
     end
     vRHS
 end
 
-function globalSolve(p::DG1D,MMatrix,Q,t)
-    k = Array(Coeffs{p.p+1},p.K)
+function globalSolve(p::DG1D,MMatrix,Q,t; cache=generateMatrices(p))
+    k = Array(Coeffs{p.p+1,eltype(eltype(Q))},p.K)
     for j = 1:p.K
-        k[j] = Coeffs{p.p+1}(MMatrix[j]\RHS(p,j,Q,t));
+        r = Coeffs(p.p+1,MMatrix[j]\RHS(p,j,Q,t; cache=cache));
+        k[j] = r
     end
     k
 end
 
-function _solve(p, ℚ)
+function _solve(p, ℚ; cache = generateMatrices(p))
     basis = phi(p.p)
     # ℚ[1] is the inital condition
-    M = [Mlocal(p,k,basis) for k = 1:p.K]
+    M = [factorize(Mlocal(p,k,basis)) for k = 1:p.K]
     for i in 2:p.nt
-        k1 = globalSolve(p,M,ℚ[i-1,:],i*p.Δt)
-        k2 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k1)',i*p.Δt)
-        k3 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k2)',i*p.Δt)
-        k4 = globalSolve(p,M,ℚ[i-1,:] + (p.Δt*k3)',i*p.Δt)
+        k1 = globalSolve(p,M,ℚ[i-1,:],i*p.Δt; cache=cache)
+        k2 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k1)',i*p.Δt; cache=cache)
+        k3 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k2)',i*p.Δt; cache=cache)
+        k4 = globalSolve(p,M,ℚ[i-1,:] + (p.Δt*k3)',i*p.Δt; cache=cache)
         ℚ[i,:] = ℚ[i-1,:] + p.Δt/6 * (k1+2*k2+2*k3+k4)';
-    end
+    
+        # post-processing
+        if p.useMUSCL
+            @assert p.p == 1 # For now
+            for c in p.mesh
+                Qk = ℚ[i,c.coord]
+                ql = evaluate(Qk,basis,coord(:l))
+                qr = evaluate(Qk,basis,coord(:r))
 
+                h = (c.right-c.left)
+
+                slope = (qr-ql)/h
+                qkbar = (ql+qr)/2
+
+                s = sign(slope)
+                minabsa = abs(slope)
+
+                for face in (:l,:r)
+                    if has_neighbor(p.mesh,c, face)
+                        N = neighbor(p.mesh, c, face)
+                        Qk = ℚ[i,N.coord]
+                        ql = evaluate(Qk,basis,coord(:l))
+                        qr = evaluate(Qk,basis,coord(:r))
+                        qNbar = (ql+qr)/2
+
+                        eeslope = n⁻(face)*(qNbar-qkbar)/h
+
+                        minabsa = min(minabsa,abs(eeslope))
+
+                        s += sign(eeslope)
+                    end
+                end
+
+                s/=3
+                # Hack in knowledge about WaveState - will fix after
+                # assignment is due
+
+                local q1c, q2c
+                if abs(s).q1 != 1
+                    q1c = [qkbar.q1 for i=1:(p.p+1)]
+                else
+                    slope = s*minabsa
+                    q1c = [(qkbar+(node)*(h/2)*slope).q1 for node in cache.ns]
+                end
+
+                if abs(s).q2 != 1
+                    q2c = [qkbar.q2 for i=1:(p.p+1)]
+                else
+                    slope = s*minabsa
+                    q2c = [(qkbar+(node)*(h/2)*slope).q2 for node in cache.ns]
+                end
+
+                @show (s, q1c, q2c)
+
+                cs = typeof(s)[typeof(s)(q1c[i],q2c[i]) for i = 1:length(q1c)]
+                ℚ[i,c.coord] = Coeffs(p.p+1,cs)
+            end
+        end
+    end
     ℚ
 end
 
 # Nodal interpolation
-interpolate(f, nodes) = Coeffs{length(nodes)}(map(f,nodes))
+interpolate(f, nodes) = (Coeffs(length(nodes),map(f,nodes)))
 
 function solve(p::DG1D)
     if p.mesh === nothing
         p.mesh = generateMesh(Mesh1D,p.a,p.b,p.K; periodic=false)
     end
 
-    # Save coefficients for all timesteps (nt) 
+    cache = generateMatrices(p)
+
+
+    # Save coefficients for all timesteps (nt)
     # for all K cells
-    ℚ = Array(Coeffs{p.p+1},p.nt,p.K)
+    
 
     if isa(p.q₀,Vector)
+        T = eltype(p.q₀)
+        ℚ = Array(Coeffs{p.p+1,T},p.nt,p.K)
         ℚ[1,:] = p.q₀ #[zero(Coeffs{p.p+1}) for i = 1:p.K]
     elseif isa(p.q₀,Function)
+        T = typeof(p.q₀(0))
+        ℚ = Array(Coeffs{p.p+1,T},p.nt,p.K)
         # Use nodal interpolation
-        𝜒⁻¹ = invatlas(p.mesh)
         for i = 1:p.K
-            ℚ[1,i] = interpolate(p.q₀,map(n->𝜒⁻¹(i,n),nodes(p.p+1)))
+            ℚ[1,i] = interpolate(p.q₀,map(n->𝜒⁻¹(p.mesh,i,n),nodes(p.p+1)))
         end
     elseif isa(p.q₀, Number)
         # Uniform initial conditions
-        ℚ[1,:] = p.q₀*ones(Coeffs{p.p+1},p.K)
-    else 
+        T = typeof(p.q₀)
+        ℚ = Array(Coeffs{p.p+1,T},p.nt,p.K)
+ 
+        ℚ[1,:] = p.q₀*ones(Coeffs{p.p+1,T},p.K)
+    else
         @assert "Unknown option"
     end
 
-    _solve(p,ℚ)
+    _solve(p,ℚ; cache=cache)
 end
 
 function pf(p,mesh,a,b,Q)
-    𝜒 = atlas(mesh)
     basis = phi(p+1)
     function (x)
         k = min(1+div(x-a,(b-a)/K),K)
-        poly = evaluate(Q[k],basis)
-        fapply(poly,(𝜒(k,x)))
+        poly = evaluate(Q[k],basis,𝜒(mesh,k,x))
     end
 end
 
 function pf(p,Q)
-    𝜒 = atlas(p.mesh)
     basis = phi(p.p)
     function (x)
         k = min(1+div(x-p.a,(p.b-p.a)/p.K),p.K)
-        poly = evaluate(Q[k],basis)
-        fapply(poly,(𝜒(k,x)))
+        poly = evaluate(Q[k],basis,𝜒(p.mesh,k,x))
     end
 end
+
 
 plotSolution(p::DG1D,Q) = plot(pf(p,Q),p.a,p.b)
 
 end
 
-include("2d.jl")
+#include("2d.jl")
 
 ## End of library code
