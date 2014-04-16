@@ -93,7 +93,7 @@ end
 nodes(p) = reverse([cos((2i-1)/(2p)*pi) for i = 1:p])
 #nodes(p) = [-1,-1/3,1/3,1]
 
-phi(nodes::Vector) = (x = Poly([0.0,1.0]); [Poly([1.0])*prod([k == i ? 1 : (x-nodes[i])/(nodes[k]-nodes[i]) for i=1:length(nodes)]) for k=1:length(nodes)])
+phi(nodes::Vector) = (x = Poly([0.0,1.0]); Poly{Float64}[Poly([1.0])*prod([k == i ? 1 : (x-nodes[i])/(nodes[k]-nodes[i]) for i=1:length(nodes)]) for k=1:length(nodes)])
 phi(p::Int64) = phi(nodes(p+1))
 
 integrate(poly::Poly, a, b) = (pp = polyint(poly); fapply(pp,b) - fapply(pp,a))
@@ -113,8 +113,9 @@ end
 
 abstract Simulation
 
+abstract DG <: Simulation
 
-type DG1D <: Simulation
+type DG1D <: DG
     p::Int64 # The order of ϕ
     K::Int64 # The number of cells to use
     a::Float64 # [a,b] is the interval on which to cumpute
@@ -337,7 +338,7 @@ function _solve(p, ℚ; cache = generateMatrices(p))
                     q2c = [(qkbar+(node)*(h/2)*slope).q2 for node in cache.ns]
                 end
 
-                @show (s, q1c, q2c)
+                #@show (s, q1c, q2c)
 
                 cs = typeof(s)[typeof(s)(q1c[i],q2c[i]) for i = 1:length(q1c)]
                 ℚ[i,c.coord] = Coeffs(p.p+1,cs)
@@ -407,6 +408,6 @@ plotSolution(p::DG1D,Q) = plot(pf(p,Q),p.a,p.b)
 
 end
 
-#include("2d.jl")
+include("2d.jl")
 
 ## End of library code

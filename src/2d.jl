@@ -10,10 +10,22 @@ module AC274_2D
 using Meshes
 using ImmutableArrays
 
+import AC274: DG
+
 import Meshes: Vertex2
 
+type DG2D <: DG
+    mesh::Meshes.Mesh{Vertex2}
+    fflux::Function # The numerical flux function
+    Δt::Float64 # Time-step
+    nt::Int64 # Number of time steps
+    C::Float64 # Diffusion constant
+    q₀
+    boundary::Function
+end
+
 immutable Cell2D
-    id::Int64
+    cid::Int64
     p1::Vertex2
     p2::Vertex2
     p3::Vertex2
@@ -45,7 +57,7 @@ start(x::Cell2D) = start(edges)
 next(x::Cell2D,i) = ((j,state) = next(edges,i); (x[j],state))
 done(x::Cell2D,i) = done(edges,i)
 function getindex(x::Cell2D,i)
-    Edge(x.id,(if i == :e1
+    Edge(x.cid,(if i == :e1
         (x.p1,x.p2)
     elseif i == :e2
         (x.p2,x.p3)
@@ -69,17 +81,26 @@ edgeid(m::Meshes.Mesh,edge) = edgeid(m[edge.cid],edge)
 
 import AC274: neighbor, has_neighbor
 
-function has_neighbor(m::Meshes.Mesh, edge; ns = computeNeighbors(m))
+function has_neighbor(m::Meshes.Mesh, edge::Edge; ns = computeNeighbors(m))
     ns[edge.cid, edgeid(m,edge)] != -1
 end
 
+function has_neighbor(m::Meshes.Mesh, cell::Cell2D, edgeid; ns = computeNeighbors(m))
+    ns[cell.cid, edgeid] != -1
+end
+
 function neighbor(m::Meshes.Mesh, cell, face; ns = computeNeighbors(m))
-    m[ns[edge.cid, edgeid(m,edge)]]
+    m[ns[cell.cid, face]]
 end
 
 Ak(c) = [ (-c.p1[1] + c.p2[1]) (-c.p1[1] + c.p3[1])
            (-c.p1[2] + c.p2[2]) (-c.p1[2] + c.p3[2]) ]
 Bk(c) = [ c.p1[1]; c.p1[2] ]
+
+##
+# 
+#
+##
 
 # Should fix multiplication. No time now tough
 function 𝜒(c::Cell2D,p)
@@ -96,6 +117,9 @@ function 𝜒(c::Edge,p)
     2*norm(proj)/norm(s) - 1
 end
 𝜒⁻¹(c::Edge,p) = c.p1 + (1/2)*(1+p)*(c.p2-c.p1)
+
+const chi = 𝜒
+const invchi = 𝜒⁻¹
 
 p0ϕ1(ξ,η) = 1
 const P0 = [p0ϕ1]
@@ -180,14 +204,14 @@ end
 
 do_quad(c::Cell2D, f, p) = -det(Ak(c))*do_quad(x->f(𝜒⁻¹(c,x)),p)
 
-function do_quad(m::Meshes.Mesh, edge::Edge, f, p; points=Base.gauss(Float64,p))
+function do_quad(m::Meshes.Mesh, edge::Edge, f, porder; points=Base.gauss(Float64,porder))
     gx, gw = points
     result = 0.0
     for i in 1:length(gw)
         x,w = gx[i],gw[i]
-        p = 𝜒⁻¹(edge,x)
+        point = 𝜒⁻¹(edge,x)
         #@show p
-        result += w*f(p)
+        result += w*f(point)
     end
     (norm(edge)/2)*result
 end
@@ -229,7 +253,7 @@ function computeNeighbors(m)
 end
 
 # Tests if the vertex p is contained in cell x
-function contains(x::Cell2D,p::Vertex2)
+function facingface(x::Cell2D,p::Vertex2)
     v0 = x.p2 - x.p1
     v1 = x.p3 - x.p1
     v2 = p - x.p1
@@ -241,21 +265,35 @@ function contains(x::Cell2D,p::Vertex2)
     dot12 = dot(v1, v2)
 
     invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
-    u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    v = (dot00 * dot12 - dot01 * dot02) * invDenom
+    λ1 = u = (dot11 * dot02 - dot01 * dot12) * invDenom
+    λ2 = v = (dot00 * dot12 - dot01 * dot02) * invDenom
+    λ3 = 1-u-v
 
-    return (u >= 0) && (v >= 0) && (u + v < 1)
+    pt = clamp(λ1,0.0,1.0)*x.p1 + clamp(λ2,0.0,1.0)*x.p2 + clamp(λ3,0.0,1.0)*x.p3
+
+    dist = norm(p-pt)
+
+    if (u >= 0) && (v >= 0) && (u + v < 1)
+        return (0,0.0)
+    elseif (u <= 0) && (v <= 0)
+        return ((abs(u) > abs(v) ? 3 : 2),dist)
+    elseif (u <= 0)
+        return (3,dist)
+    elseif (v <= 0)
+        return (2,dist)
+    else
+        return (1,dist)
+    end
 end
 
-tocr(x,s,mmin,mmax) = s*(x-mmin)/(mmax-mmin)
-tom(x,s,mmin,mmax) = mmin+(x/s)*(mmax-mmin)
+contains(x::Cell2D,p::Vertex2) = facingface(x,p)[1] == 0
 
 minx(c) = min(c.p1[1],c.p2[1],c.p3[1])
 maxx(c) = max(c.p1[1],c.p2[1],c.p3[1])
 miny(c) = min(c.p1[2],c.p2[2],c.p3[2])
 maxy(c) = max(c.p1[2],c.p2[2],c.p3[2])
 
-import Base: *, -, +, dot
+import Base: *, -, +, dot, ./
 
 for f in (:(-),:(+),:dot)
     @eval ($f)(a::Vertex2,b::Vertex2) = ($f)(a.coords,b.coords)
@@ -264,6 +302,7 @@ end
 +(a::Vector2{Float64},b::Vertex2) = Vertex2(a+b.coords)
 -(a::Vector2{Float64},b::Vertex2) = Vertex2(a-b.coords)
 +(b::Vertex2,a::Vector2{Float64}) = a+b
+./(a::Vertex2,b::Number) = Vertex2(a.coords./b)
 
 function transformf(m,w,h)
     xs = map(v->v[1],m.vertices)
@@ -276,21 +315,24 @@ function transformf(m,w,h)
     end
 end
 
-function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h)
-    c = CairoRGBSurface(w,h);
-    cr = CairoContext(c);
+export vertices
 
-    save(cr);
-    set_source_rgb(cr,1.0,1.0,1.0);    # white
-    rectangle(cr,0.0,0.0,w,h); # background
-    fill(cr);
-    restore(cr);
+vertices(c::Cell2D) = [c.p1,c.p2,c.p3]
+
+function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = nothing)
+    if colors != nothing 
+        @assert length(colors) == length(vs)
+    end
+
+    c,cr = setupDrawing(w,h)
 
     transform = transformf(m,w,h)
 
     set_source_rgb(cr,0.0,0.0,0.0);    # white
 
-    for v in vs
+    for i in 1:length(vs)
+        v = vs[i]
+        colors != nothing && set_source(cr,colors[i])
         vʹ = transform(v)
         circle(cr,vʹ[1],vʹ[2],2.0)
         fill(cr)
@@ -357,7 +399,7 @@ function drawNormals(m::Meshes.Mesh{Vertex2},edges::Vector{Edge},w,h; inward=fal
     c
 end
 
-#using Winston
+using Winston
 
 #colorbar
 function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._current_colormap, kvs...)
@@ -410,42 +452,85 @@ function default_colorize(data)
         end
     end
 
-    display(colorbar(minimum(data),maximum(data)))
+    #display(colorbar(minimum(data),maximum(data)))
 
     colors
 end
 
-function plotMesh(m::Meshes.Mesh{Vertex2},w,h; func=nothing, colorize=identity)
-    c,cr = setupDrawing(w,h)
+immutable BBox 
+    mminx::Float64
+    mmaxx::Float64
+    mminy::Float64
+    mmaxy::Float64
+end
 
+tocr(x,s,mmin,mmax) = s*(x-mmin)/(mmax-mmin)
+tom(x,s,mmin,mmax) = mmin+(x/s)*(mmax-mmin)
+
+tocrx(x,s,bbox::BBox) = tocr(x,s,bbox.mminx,bbox.mmaxx)
+tocry(x,s,bbox::BBox) = tocr(x,s,bbox.mminy,bbox.mmaxy)
+
+tomx(x,s,bbox::BBox) = tom(x,s,bbox.mminx,bbox.mmaxx)
+tomy(x,s,bbox::BBox) = tom(x,s,bbox.mminy,bbox.mmaxy)
+
+tom(c::Cell2D,x,y,w,h,bbox::BBox) = Vertex2(tomx(x,w,bbox),tomy(y,h,bbox))
+tocr(c::Cell2D,x,y,w,h,bbox::BBox)= Vertex2(tocrx(x,w,bbox),tocry(y,h,bbox))
+
+function computebbox(m)
     xs = map(v->v[1],m.vertices)
     ys = map(v->v[2],m.vertices)
     mminx, mmaxx = extrema(xs)
     mminy, mmaxy = extrema(ys)
+    BBox(mminx,mmaxx,mminy,mmaxy)
+end
 
-    if func !== nothing
-        ns = computeNeighbors(m)
-        data = Array(typeof(func(first(m),Vertex2(0,0))),w,h)
-        fill!(data,NaN)
-        for i in 1:length(m.faces)
-            f = m.faces[i]
-            # Find all the pixels whose center is in this triangle. 
-            # There's probably a smarter way to do this, but this is fine
-            # for now.
-            #@show i
-            cell = cell2d(m,f,i)
-            for x=floor(tocr(minx(cell),w,mminx,mmaxx)):ceil(tocr(maxx(cell),w,mminx,mmaxx)),
-                y=floor(tocr(miny(cell),h,mminy,mmaxy)):ceil(tocr(maxy(cell),h,mminy,mmaxy))
-                p = Vertex2(tom(x,w,mminx,mmaxx),tom(y,h,mminy,mmaxy))
-                if contains(cell,p)
+function pixelwise!(data,m::Meshes.Mesh{Vertex2},w,h,func; bbox=computebbox(m), naval=NaN)
+    ns = computeNeighbors(m)
+    for i in 1:length(m.faces)
+        f = m.faces[i]
+        # Find all the pixels whose center is in this triangle. 
+        # There's probably a smarter way to do this, but this is fine
+        # for now.
+        #@show i
+        cell = cell2d(m,f,i)
+        for x=floor(tocrx(minx(cell),w,bbox)):ceil(tocrx(maxx(cell),w,bbox)),
+            y=floor(tocry(miny(cell),h,bbox)):ceil(tocrx(maxy(cell),h,bbox))
+            p = Vertex2(tomx(x,w,bbox),tomy(y,h,bbox))
+            ff, dist = facingface(cell,p)
+            if ff == 0
+                data[clamp(x,1,w),clamp(y,1,h)] = func(cell,p)
+            else 
+                #@show dist
+                mindist = Inf
+                for face in 1:3
+                    has_neighbor(m,cell,face;ns=ns) || continue
+                    nn = neighbor(m,cell,face;ns=ns)
+                    _, ndist = facingface(nn,p)
+                    mindist = min(ndist,mindist)
+                    #@show mindist
+                    contains(nn,p) && assert(mindist == 0.)
+                    mindist == 0. && break
+                end
+                if mindist >= dist-w*h*eps() && data[clamp(x,1,w),clamp(y,1,h)] === naval
                     data[clamp(x,1,w),clamp(y,1,h)] = func(cell,p)
                 end
             end
         end
+    end
+end
+
+function plotMesh(m::Meshes.Mesh{Vertex2},w,h; func=nothing, colorize=identity, drawMesh=true)
+    c,cr = setupDrawing(w,h)
+
+    if func !== nothing
+        #typeof(func(first(m),Vertex2(0,0)))
+        data = Array(Float64,w,h)
+        fill!(data,NaN)
+        pixelwise!(data,m,w,h,func)
         Cairo.image(cr,CairoImageSurface(colorize(data),Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
     end
 
-    _drawMesh(cr,m,w,h)
+    drawMesh && _drawMesh(cr,m,w,h)
 
     c
 end
@@ -467,7 +552,100 @@ function ∂Ω(m;ns = computeNeighbors(m))
 end
 
 function ∇I(c,coeffs,p; DP=getDPhi(2))
+    #@show AC274_2D.chi(c,p)
     Base.sum([a*dphi(AC274_2D.chi(c,p)) for (a,dphi) in zip(coeffs,DP)])
+end
+
+function drawArrow(cr, from, to; arrow_length = 15.0, arrow_degrees = 0.5)
+    angle = atan2(to[2] - from[2], to[1] - from[1]) + pi;
+    p1 = to + Vertex2(arrow_length * cos(angle - arrow_degrees),
+                arrow_length * sin(angle - arrow_degrees))
+    p2 = to + Vertex2(arrow_length * cos(angle + arrow_degrees),
+                arrow_length * sin(angle + arrow_degrees))
+    set_source_rgb(cr,1.0,0.0,0.0)
+    move_to(cr,from[1],from[2])
+    line_to(cr,to[1],to[2])
+    line_to(cr,p1[1],p1[2])
+    move_to(cr,to[1],to[2])
+    line_to(cr,p2[1],p2[2])
+    stroke(cr)
+end
+
+norm(v::Vertex2) = norm(v.coords)
+
+function draw_vector_field(m,Q,w,h;nump=10)
+    c,cr = setupDrawing(w,h)
+
+    #_drawMesh(cr,m,w,h)
+
+    bbox = computebbox(m)
+
+    xps = map(round,linspace(0,w,nump))
+    yps = map(round,linspace(0,h,nump))
+
+    data = zeros(Int64,w,h)
+    pixelwise!(data,m,w,h,(cell,p)->cell.cid; bbox=bbox)
+
+    for x in xps, y in yps
+        cid = data[clamp(x,1,w),clamp(y,1,h)]
+        if cid==0
+            continue
+        end
+        p = tom(m[cid],x,y,w,h,bbox)
+
+        gf = ∇I(m[cid],Q[cid],p)
+
+        #v = tocr(m[cid],gf[1],gf[2],w,h,bbox)
+        v = (Ak(m[cid])')\gf
+        #v = gf
+        v ./= norm(v)
+        v = 20.0*v
+        #
+        drawArrow(cr,Vertex2(x,y),Vertex2(v[1]+x,v[2]+y); arrow_length = 5)
+    end
+
+    c
+end
+
+##
+# f = a f_1 + b f_2 + c f_3
+# g = f(chi(p))
+# g' = f'(chi(p))*chi'(p)
+## 
+
+function drawref(w,h,m,cell,coeffs,func; colorize=identity, nump=10)
+    c,cr = setupDrawing(w,h)
+    data = Array(Float64,w,h)
+    fill!(data,NaN)
+    bbox = computebbox(m)
+    for x=1:w, y=1:h
+        point = cell.p1 + (x/w)*(cell.p2-cell.p1) + (y/h)*(cell.p3-cell.p1)
+        if contains(cell,point)
+            data[clamp(x,1,w),clamp(y,1,h)] = func(cell,point)
+        end
+    end
+
+    Cairo.image(cr,CairoImageSurface(colorize(data),Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
+
+    xps = map(round,linspace(0,w,nump))
+    yps = map(round,linspace(0,h,nump))
+
+    for x in xps, y in yps
+        point = cell.p1 + (x/w)*(cell.p2-cell.p1) + (y/h)*(cell.p3-cell.p1)
+        if contains(cell,point)
+            gf = ∇I(cell,coeffs,point)
+
+            #v = tocr(m[cid],gf[1],gf[2],w,h,bbox)
+            #v = 𝜒⁻¹(m[cid],Vertex2(gf[1],gf[2]))-m[cid].p1
+            v = gf
+            v ./= norm(v)
+            v = 20.0*v
+            #
+            drawArrow(cr,Vertex2(x,y),Vertex2(v[1]+x,v[2]+y); arrow_length = 5)
+        end
+    end
+
+    c
 end
 
 end
