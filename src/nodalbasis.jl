@@ -67,7 +67,9 @@ function evaluate_ref{N,T}(coeffs::Coeffs{N,T},basis)
     sum([a*f for (f,a) in zip(coeffs,basis)])
 end
 
-function evaluate_ref{N,T}(coeffs::Coeffs{N,T},basis,p)
+order(x::Array) = length(x)
+
+function evaluate_ref(coeffs,basis,p)
     order(coeffs) == order(basis) || error("Basis and vector must agree")
     result = coeffs[1]*fapply(basis[1],p)
     for i = 2:length(basis)
@@ -100,18 +102,37 @@ evalrefcoefff = (k,e)->:(coeffs[$k]*$e)
 @unroll_eval evaluate_ref2dp1(coeffs,p) evalrefcoefff P1
 @unroll_eval evaluate_ref2dp2(coeffs,p) evalrefcoefff P2
 
-function evaluate_ref2d(p,coeffs,point) 
+cidevalrefcoefff = (k,e)->:(coeffs[1,cid,$k]*$e)
+@unroll_eval evaluate_ref2dp0(coeffs,cid,p) cidevalrefcoefff P0
+@unroll_eval evaluate_ref2dp1(coeffs,cid,p) cidevalrefcoefff P1
+@unroll_eval evaluate_ref2dp2(coeffs,cid,p) cidevalrefcoefff P2
+
+function evaluate_ref2d{T}(p,coeffs::Array{T},a,b) 
     po = porder(p)
     if po == 0
-        return evaluate_ref2dp0(coeffs.coeffs,point)
+        return evaluate_ref2dp0(coeffs,a,b)
     elseif po == 1
-        return evaluate_ref2dp1(coeffs.coeffs,point)
+        return evaluate_ref2dp1(coeffs,a,b)
     elseif po == 2
-        return evaluate_ref2dp2(coeffs.coeffs,point)
+        return evaluate_ref2dp2(coeffs,a,b)
     else 
         error("Not specialized for this case")
     end
 end
+function evaluate_ref2d{T}(p,coeffs::Array{T},a) 
+    po = porder(p)
+    if po == 0
+        return evaluate_ref2dp0(coeffs,a)
+    elseif po == 1
+        return evaluate_ref2dp1(coeffs,a)
+    elseif po == 2
+        return evaluate_ref2dp2(coeffs,a)
+    else 
+        error("Not specialized for this case")
+    end
+end
+evaluate_ref2d(p,coeffs::Array{Coeffs},point) = evaluate_ref2d(p,coeffs.coeffs,point)
+
 
 macro unroll_map(call, basis)
     funcs = eval(basis)

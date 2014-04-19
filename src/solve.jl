@@ -1,10 +1,9 @@
 import NumericExtensions: add!, multiply!
 
-function globalSolve(p::DG,MMatrix,Q,t,cache)
-    k = Array(Coeffs{nbf(p),eltype(eltype(Q))},numcells(p))
+function globalSolve{T}(p::DG,MMatrix,Q::Array{T},t,cache)
+    k = Array(T,1,numcells(p),nbf(p))
     for c in p.mesh
-        r = Coeffs(nbf(p),MMatrix[cid(c)]\RHS(p,c,Q,t,cache));
-        k[cid(c)] = r
+        k[1,cid(c),:] = MMatrix[cid(c)]\RHS(p,c,Q,t,cache)
     end
     k
 end
@@ -14,23 +13,14 @@ function _solve(p::DG, ℚ; cache = generateMatrices(p))
     # ℚ[1] is the inital condition
     M = [factorize(Mlocal(p,c,basis)) for c in p.mesh]
     for i in 2:p.nt
-        k1 = globalSolve(p,M,ℚ[i-1,:],i*p.Δt,cache)
-        k2 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k1)',i*p.Δt,cache)
-        k3 = globalSolve(p,M,ℚ[i-1,:] + (0.5*p.Δt*k2)',i*p.Δt,cache)
-        k4 = globalSolve(p,M,ℚ[i-1,:] + (p.Δt*k3)',i*p.Δt,cache)
-        for j = 1:numcells(p)
-            # This is probably stupid, but 
-            # oh well
-            # ℚ[i,:] = ℚ[i-1,:] + p.Δt/6 * (k1+2*k2+2*k3+k4)';
-            ℚ[i,j] = copy(ℚ[i-1,j])
-            multiply!(k1[j].coeffs,p.Δt/6)
-            add!(ℚ[i,j].coeffs,k1[j].coeffs)
-            multiply!(k2[j].coeffs,2*p.Δt/6)
-            add!(ℚ[i,j].coeffs,k2[j].coeffs)
-            multiply!(k3[j].coeffs,2*p.Δt/6)
-            add!(ℚ[i,j].coeffs,k3[j].coeffs)
-            multiply!(k4[j].coeffs,p.Δt/6)
-            add!(ℚ[i,j].coeffs,k4[j].coeffs)
+        k1 = globalSolve(p,M,ℚ[i-1,:,:],i*p.Δt,cache)
+        k2 = globalSolve(p,M,ℚ[i-1,:,:] + 0.5*p.Δt*k1,i*p.Δt,cache)
+        k3 = globalSolve(p,M,ℚ[i-1,:,:] + 0.5*p.Δt*k2,i*p.Δt,cache)
+        k4 = globalSolve(p,M,ℚ[i-1,:,:] + p.Δt*k3,i*p.Δt,cache)
+        for j = 1:size(ℚ,2)
+            for k = 1:size(ℚ,3)
+                ℚ[i,j,k] = ℚ[i-1,j,k] + p.Δt/6 * (k1[1,j,k]+2*k2[1,j,k]+2*k3[1,j,k]+k4[1,j,k])
+            end
         end
     
         # post-processing
@@ -95,7 +85,7 @@ function _solve(p::DG, ℚ; cache = generateMatrices(p))
 end
 
 # Nodal interpolation
-interpolate(f, nodes) = (Coeffs(length(nodes),map(f,nodes)))
+interpolate(f, nodes) = map(f,nodes)
 
 function solve(p::DG)
     if p.mesh === nothing
@@ -112,22 +102,22 @@ function solve(p::DG)
     # for all K cells
     if isa(p.q₀,Vector)
         T = eltype(p.q₀)
-        ℚ = Array(Coeffs{p.p+1,T},p.nt,numcells(p))
+        ℚ = Array(T,p.nt,numcells(p),nbf(p))
         ℚ[1,:] = p.q₀ #[zero(Coeffs{p.p+1}) for i = 1:p.K]
     elseif isa(p.q₀,Function)
         T = typeof(p.q₀(zerop(p)))
-        ℚ = Array(Coeffs{nbf(p),T},p.nt,numcells(p))
+        ℚ = Array(T,p.nt,numcells(p),nbf(p))
         # Use nodal interpolation
         ns = nodes(p)
         for c in p.mesh
-            ℚ[1,cid(c)] = interpolate(p.q₀,map(n->𝜒⁻¹(p.mesh,c,n),ns))
+            ℚ[1,cid(c),:] = interpolate(p.q₀,map(n->𝜒⁻¹(p.mesh,c,n),ns))
         end
     elseif isa(p.q₀, Number)
         # Uniform initial conditions
         T = typeof(p.q₀)
-        ℚ = Array(Coeffs{p.p+1,T},p.nt,numcells(p))
+        ℚ = Array(T,p.nt,numcells(p),nbf(p))
  
-        ℚ[1,:] = p.q₀*ones(Coeffs{p.p+1,T},numcells(p))
+        ℚ[1,:,:] = p.q₀*ones(1,numcells(p),nbf(p))
     else
         @assert "Unknown option"
     end

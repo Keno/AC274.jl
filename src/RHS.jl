@@ -18,6 +18,7 @@ type Cache2D
     neighbors::Array{Int64,2}
     elemJ::Array{Float64,1}
     Δ1quadpoints::(Array{Float64,1},Array{Float64,1})
+    realspacenodes::Array{Array{Vertex2,1},1}
 end
 
 function generateMatrices(p::DG2D) 
@@ -25,8 +26,10 @@ function generateMatrices(p::DG2D)
     phidphi = [
         Vertex2[ do_quad_ref(x->(pphi[i](x)*inv(Ak(c)')*pdphi[j](x)),p) for i = 1:nbf(p), j = 1:nbf(p)]
         for c in p.mesh]
+    ns = nodes(p)
+    realspacenodes = [[𝜒⁻¹(p.mesh,c,point) for point in ns] for c in p.mesh]
     Cache2D(phidphi, pphi, pdphi, nodes(p), computeNeighbors(p.mesh), [elemJ(p,c) for c in p.mesh],
-        Base.gauss(Float64,max(1,2*porder(p))))
+        Base.gauss(Float64,max(1,2*porder(p))),realspacenodes)
 end
 
 export n⃗, midp
@@ -67,16 +70,17 @@ function generateMatrices(p::DG1D)
     Cache(phidphi,phi,dphi,ns)
 end
 
-fflux(q,cell,face,t) = p.fflux(q,cell,face,t)::typeof(zerop(p))
+fflux(p,q,cell,face,point,t) = p.fflux(q,cell,face,point,t)::typeof(zerop(p))
 #fflux(q,cell,face,t) = Main.fflux(q,cell,face,t)
 
 
 
 #::typeof(zerop(p))
-function laxcf(p,q⁻,q⁺,cell,face,t)
-    dot(n⁻(face),(1/2)*(fflux(q⁻,cell,face,t) + 
-                        fflux(q⁺,cell,face,t))) + # average term
-        (1/2)*p.C*( q⁻ - q⁺ ) # Jump term
+function laxcf(p,q⁻,q⁺,cell,face,point,t)
+    a = n⁻(face)
+    b = fflux(p,q⁻,cell,face,point,t) + 
+        fflux(p,q⁺,cell,face,point,t) # average term
+    return (1/2)*(a[1]*b[1]+a[2]*b[2] + p.C*( q⁻ - q⁺ )) # Jump term
 end
 
 function computeFlux!(p::DG1D,cell,face,Q,t; cache = nothing)
@@ -106,8 +110,6 @@ function computeFlux!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
     basis, dphi, ns = cache.basis, cache.dphi, cache.ns
 
     oppedge = oppface(p.mesh, cell, face, cache.neighbors)
-    Qk = Q[cid(cell)]
-    Qn = Q[cid(oppedge)]
 
     gx, gw = cache.Δ1quadpoints
     # Manually inline quadrature
@@ -116,28 +118,55 @@ function computeFlux!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
         point⁻, w = gx[i], gw[i]
         point⁺ = oppcoord(face,oppedge,point⁻)
 
+        point = 𝜒⁻¹(face,point⁻)
+
         cpoint⁻ = ∂(cell,face,point⁻)
-        q⁻ = evaluate_ref2d(p,Qk,cpoint⁻)
-        q⁺ = evaluate_ref2d(p,Qn,∂(p.mesh[cid(oppedge)],oppedge,point⁺))
+        q⁻ = evaluate_ref2d(p,Q,cid(cell),cpoint⁻)
+        q⁺ = evaluate_ref2d(p,Q,cid(oppedge),∂(p.mesh[cid(oppedge)],oppedge,point⁺))
 
         # f﹡ϕ_i(x_r)n-
-        f = laxcf(p,q⁻,q⁺,cell,face,t)
+        f = laxcf(p,q⁻,q⁺,cell,face,point,t)
+        #vRHS[:] -= factor*w*f*fapply(basis,cpoint⁻)
+        b = evaluate_basis2d!(vRHS,p,-f*factor*w,cpoint⁻)
+    end
+end
+
+boundaryflux(p,q⁻,cell,face,point,t) = p.boundaryflux(q⁻,cell,face,point,t)
+
+function computeBoundary!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
+    Qk = Q[1,cid(cell),:]
+
+    gx, gw = cache.Δ1quadpoints
+    # Manually inline quadrature
+    factor = sqrt(dot(face.p2-face.p1,face.p2-face.p1))/2
+    for i in 1:length(gw)
+        point⁻, w = gx[i], gw[i]
+
+        point = 𝜒⁻¹(face,point⁻)
+
+        cpoint⁻ = ∂(cell,face,point⁻)
+        q⁻ = evaluate_ref2d(p,Qk,cpoint⁻)
+
+        # f﹡ϕ_i(x_r)n-
+        f = boundaryflux(p,q⁻,cell,face,point,t)
+
         #vRHS[:] -= factor*w*f*fapply(basis,cpoint⁻)
         b = evaluate_basis2d!(vRHS,p,-f*factor*w,cpoint⁻)
     end
 end
 
 
-function RHS(p,cell,Q,t,cache=generateMatrices(p))
+function RHS{T}(p,cell,Q::Array{T,3},t,cache=generateMatrices(p))
     basis, dphi, ns = cache.basis, cache.dphi, cache.ns
 
-    Qk = Q[cid(cell)]
-    vRHS = zeros(eltype(Qk),nbf(p))
+    vRHS = zeros(eltype(Q),nbf(p))
 
     for face in cell
         if has_neighbor(p.mesh, cell, face, cache.neighbors)
             computeFlux!(vRHS,p,cell,face,Q,t,cache)
         else
+            computeBoundary!(vRHS,p,cell,face,Q,t,cache)
+
             #vRHS[:] = 0
             #vRHS[:] -= n⁻(face) * fapply(basis,coord(face)) * (1//2)*p.fflux(q⁻,cell,face,t)::typeof(q⁻)
 
@@ -147,7 +176,7 @@ function RHS(p,cell,Q,t,cache=generateMatrices(p))
     end
 
     for i = 1:nbf(p)
-        Fki = fflux(Qk[i],cell,0,t)
+        Fki = fflux(p,Q[1,cid(cell),i],cell,0,cache.realspacenodes[cid(cell)][i],t)
         #@show Fkj
         for j = 1:nbf(p)
             vRHS[j] += cache.elemJ[cid(cell)]*dot(Fki,cache.phidphi[cid(cell)][i,j])

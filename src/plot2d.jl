@@ -107,7 +107,7 @@ using Winston
 function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._current_colormap, kvs...)
  
     if orientation == "vertical"
-        p=FramedPlot(aspect_ratio=10.0)
+        p=FramedPlot()
         setattr(p.x, draw_ticks=false)
         setattr(p.y1, draw_ticks=false)
         setattr(p.x1, draw_ticklabels=false)
@@ -117,10 +117,14 @@ function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._curren
         xr=(1,2)
         yr=(dmin,dmax)
  
+        setattr(p, :xrange, xr)
+        setattr(p.y1, range = yr)
+        setattr(p.y2, range = yr)
+
         y=linspace(dmin, dmax, 256)*1.0
         data=[y y]
     elseif orientation == "horizontal"
-        p=FramedPlot(aspect_ratio=0.1)
+        p=FramedPlot()
         setattr(p.y, draw_ticks=false)
         setattr(p.x1, draw_ticks=false)
         setattr(p.y1, draw_ticklabels=false)
@@ -129,15 +133,16 @@ function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._curren
  
         yr=(1,2)
         xr=(dmin, dmax)
+
+        setattr(p, :yrange, yr)
+        setattr(p.x1, range = xr)
+        setattr(p.x2, range = xr)        
  
         x=linspace(dmin,dmax,256)*1.0
         data=[x', x']
     end
  
-    setattr(p, :xrange, xr)
-    setattr(p, :yrange, yr)
- 
-    setattr(p; kvs...)
+    #setattr(p; kvs...)
  
     clims = (minimum(data),maximum(data))
  
@@ -147,16 +152,16 @@ function colorbar(dmin, dmax; orientation="horizontal", colormap=Winston._curren
 end
 
 function default_colorize(data)
-    colors = Winston.data2rgb(data, (minimum(data),maximum(data)+1), Winston._current_colormap)
+    colors = Winston.data2rgb(data, (minimum(data),maximum(data)), Winston._current_colormap)
     for x=1:size(data,1), y=1:size(data,2)
         if isnan(data[x,y])
             colors[x,y] = 0xD3D3D3
         end
     end
 
-    #display(colorbar(minimum(data),maximum(data)))
+    c = colorbar(maximum(data),minimum(data), orientation = "vertical")
 
-    colors
+    colors, c
 end
 
 immutable BBox 
@@ -196,7 +201,7 @@ function pixelwise!(data,m::Meshes.Mesh{Vertex2},w,h,func; bbox=computebbox(m), 
         #@show i
         cell = cell2d(m,f,i)
         for x=floor(tocrx(minx(cell),w,bbox)):ceil(tocrx(maxx(cell),w,bbox)),
-            y=floor(tocry(miny(cell),h,bbox)):ceil(tocrx(maxy(cell),h,bbox))
+            y=floor(tocry(miny(cell),h,bbox)):ceil(tocry(maxy(cell),h,bbox))
             p = Vertex2(tomx(x,w,bbox),tomy(y,h,bbox))
             ff, dist = facingface(cell,p)
             if ff == 0
@@ -222,14 +227,17 @@ function pixelwise!(data,m::Meshes.Mesh{Vertex2},w,h,func; bbox=computebbox(m), 
 end
 
 function plotMesh(m::Meshes.Mesh{Vertex2},w,h; func=nothing, colorize=identity, drawMesh=true)
-    c,cr = setupDrawing(w,h)
+    c,cr = setupDrawing(w+(func !== nothing ? 10+ceil(h/10) : 0),h)
 
     if func !== nothing
         #typeof(func(first(m),Vertex2(0,0)))
         data = Array(Float64,w,h)
         fill!(data,NaN)
         pixelwise!(data,m,w,h,func)
-        Cairo.image(cr,CairoImageSurface(colorize(data),Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
+        colors, colorbar = colorize(data)
+        ccr = Winston.CairoRenderer(c)
+        Winston.compose(colorbar, ccr, Base.Graphics.BoundingBox(w+10,w+10+ceil(h/10),0,h))
+        Cairo.image(cr,CairoImageSurface(colors,Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
     end
 
     drawMesh && _drawMesh(cr,m,w,h)
@@ -327,4 +335,22 @@ function drawref(w,h,m,cell,coeffs,func; colorize=identity, nump=10)
     end
 
     c
+end
+
+function plotSolution{N,T}(p::DG2D, Q::Array{Coeffs{N,T},2}, t)
+    coeffs = Q[t,:]
+    plotMesh(p.mesh,256,256; func=function (c,point)
+        evaluate(coeffs[c.cid],AC274.getPhi(porder(p)),chi(c,point))
+    end,
+    colorize=AC274.default_colorize,
+    drawMesh=false)
+end
+
+function plotSolution{T}(p::DG2D, QQ::Array{T,3}, t; tfunc = identity, w =256, h=256)
+    coeffs = QQ[t,:,:]
+    plotMesh(p.mesh,w,h; func=function (c,point)
+        evaluate(tfunc(coeffs[1,c.cid,:]),AC274.getPhi(porder(p)),chi(c,point))
+    end,
+    colorize=AC274.default_colorize,
+    drawMesh=false)
 end
