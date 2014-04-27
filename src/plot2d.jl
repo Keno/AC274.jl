@@ -21,7 +21,7 @@ export vertices
 
 vertices(c::Cell2D) = [c.p1,c.p2,c.p3]
 
-function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = nothing)
+function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = nothing, draw_mesh = false)
     if colors != nothing 
         @assert length(colors) == length(vs)
     end
@@ -31,6 +31,8 @@ function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = 
     transform = transformf(m,w,h)
 
     set_source_rgb(cr,0.0,0.0,0.0);    # white
+
+    draw_mesh && _drawMesh(cr,m,w,h,transform=transform)
 
     for i in 1:length(vs)
         v = vs[i]

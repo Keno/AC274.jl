@@ -238,7 +238,7 @@ to2d(m) = Mesh{Vertex2}([(@assert v[3]==0; Vertex2(v[1],v[2])) for v in m.vertic
 export to2d, ∂Ω, ∇I
 
 function ∂Ω(m;ns = computeNeighbors(m))
-    edges = AC274_2D.Edge[]
+    edges = AC274.Edge[]
     for c in m
         for edge in c
             if !has_neighbor(m, edge; ns=ns)

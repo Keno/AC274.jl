@@ -134,8 +134,6 @@ end
 boundaryflux(p,q⁻,cell,face,point,t) = p.boundaryflux(q⁻,cell,face,point,t)
 
 function computeBoundary!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
-    Qk = Q[1,cid(cell),:]
-
     gx, gw = cache.Δ1quadpoints
     # Manually inline quadrature
     factor = sqrt(dot(face.p2-face.p1,face.p2-face.p1))/2
@@ -145,9 +143,8 @@ function computeBoundary!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
         point = 𝜒⁻¹(face,point⁻)
 
         cpoint⁻ = ∂(cell,face,point⁻)
-        q⁻ = evaluate_ref2d(p,Qk,cpoint⁻)
+        q⁻ = evaluate_ref2d(p,Q,cid(cell),cpoint⁻)
 
-        # f﹡ϕ_i(x_r)n-
         f = boundaryflux(p,q⁻,cell,face,point,t)
 
         #vRHS[:] -= factor*w*f*fapply(basis,cpoint⁻)
