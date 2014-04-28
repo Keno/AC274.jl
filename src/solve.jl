@@ -1,3 +1,11 @@
+## Time discretization and Solution Post Processing
+#
+# Currently implements fourth order Runge Kutta for CG and DG methods.
+#
+# Additional features include:
+#   - MUSCL Limiter for (currently) 1D, p=1 problems
+#
+#
 import NumericExtensions: add!, multiply!
 
 function globalSolve{T}(p::DG,MMatrix,Q::Array{T},t,cache)

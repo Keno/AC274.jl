@@ -1,3 +1,9 @@
+### Implementation of a nodal polynomial basis for elements in 1 and 2 dimensions
+#
+# Polynomials are written in coordinates on reference elements.
+###
+
+
 # 1D nodal basis
 
 using Polynomials
@@ -13,11 +19,53 @@ dphi(p::DG1D) = polyder(phi(p))
 
 # 2D nodal basis
 
+#
+# Consider the folling sketch of a reference element. We label
+# reference coordinates as ξ and η (not x and y as those refer to real
+# coordinates in the mesh)
+#
+#
+#               η
+#               ▲
+#               |
+#             1 -      v3
+#               |      |\
+#               |      |  \
+#               |      |    \
+#               |      |      \
+#               |      |        \
+#               |      |          \
+#             0 -      |____________\
+#               |      v1           v2
+#               |
+#               |
+#               +------|-------------|----▶ ξ
+#                      0             1
+#
+#
+#
+# Note the choice of counterclockwise orientation when numbering
+# The vertices.
+#
+
+## p = 0 ##
+#
+# One node and (1/3,1/3) with constant basis functions
+#
+###########
+
 p0ϕ1(ξ,η) = 1.
 ∇p0ϕ1(ξ,η) = Vertex2(0.,0.)
 const P0 = [p0ϕ1]
 const DP0 = [∇p0ϕ1]
 const N0 = [Vertex2(1//3,1//3)]
+
+## p = 1 ##
+#
+# Three nodes at the vertices of the reference element with linear
+# basis functions
+#
+###########
 
 p1ϕ1(ξ,η) = 1 - ξ - η
 p1ϕ2(ξ,η) = ξ
@@ -30,6 +78,13 @@ p1ϕ3(ξ,η) = η
 const P1 = [p1ϕ1,p1ϕ2,p1ϕ3]
 const DP1 = [∇p1ϕ1,∇p1ϕ2,∇p1ϕ3]
 const N1 = [Vertex2(0,0),Vertex2(1,0),Vertex2(0,1)]
+
+## p = 2 ##
+#
+# Six nodes at the vertices + midpoints of the reference element with
+# quadratic functions
+#
+###########
 
 p2ϕ1(ξ,η) = 2.0*(0.5 - ξ - η)*(1.0 - ξ - η)
 p2ϕ2(ξ,η) = 2.0ξ*(ξ - 0.5)
@@ -49,6 +104,8 @@ p2ϕ6(ξ,η) = 4.0η*(1. - ξ - η)
 const P2 = [p2ϕ1,p2ϕ2,p2ϕ3,p2ϕ4,p2ϕ5,p2ϕ6]
 const DP2 = [∇p2ϕ1,∇p2ϕ2,∇p2ϕ3,∇p2ϕ4,∇p2ϕ5,∇p2ϕ6]
 const N2 = [Vertex2(0,0),Vertex2(1,0),Vertex2(0,1),Vertex2(0.5,0),Vertex2(0.5,0.5),Vertex2(0,0.5)]
+
+### End of P=2 Basis functions
 
 for f in [P0,P1,P2,DP0,DP1,DP2]
     @eval $(f.env.name)(v::Vertex2) = $(f.env.name)(v.coords.e1,v.coords.e2)

@@ -76,6 +76,14 @@ start(x::Mesh1D) = 1
 next(x::Mesh1D,i) = (x[i],i+1)
 done(x::Mesh1D,i) = i > length(x)
 
+# 
+# We parameterize the reference element as the interval [-1,1]
+#
+#                     l                     r
+#                     |----------|----------|
+#                  x= -1         0          1 
+#
+
 𝜒(m::Mesh1D,k,x) = 2*(x-m.elements[k])/step(m.elements) - 1
 𝜒⁻¹(m::Mesh1D,k,x) = (m.elements[k] + (1/2)*(1+x)*(step(m.elements)))::Float64
 𝜒(m::Mesh1D,c::Cell1D,x) = 𝜒(m,c.coord,x)
@@ -138,7 +146,7 @@ cid(c::Edge) = c.cid
 #
 # Functions to go between edges and their numbering.
 #
-# Edges are numbered {1,2,3} in a clockwise notion from vertex 0 of the cell. 
+# Edges are numbered {1,2,3} in a counterclockwise notion from vertex 0 of the cell. 
 # Please also note the disucussion about orientation at the beginning of this
 # section since this is where that convention is enforced.
 #
@@ -196,6 +204,10 @@ function next(x::Meshes.Mesh,state)
 end
 done(x::Meshes.Mesh,state) = done(x.faces, state)
 getindex(x::Meshes.Mesh,i) = cell2d(x,x.faces[i],i)
+
+#
+# Projection to reference coordinates. For a sketch, see nodalbasis.jl
+#
 
 Ak(c) = [ (-c.p1[1] + c.p2[1]) (-c.p1[1] + c.p3[1])
            (-c.p1[2] + c.p2[2]) (-c.p1[2] + c.p3[2]) ]
