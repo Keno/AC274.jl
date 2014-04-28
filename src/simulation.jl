@@ -19,7 +19,7 @@ type DG1D <: DG
     hackinextraflux::Bool
     useMUSCL::Bool
     DG1D(p, K, a::Float64, b::Float64, fflux::Function, Δt::Float64,
-        nt::Int64, C::Float64, q₀; mesh = nothing, boundary = t->zero(typeof(q₀(0))), hackinextraflux=false, useMUSCL = false) =
+        nt::Int64, C::Float64, q₀; mesh = nothing, boundary = (args...)->zero(typeof(q₀(0))), hackinextraflux=false, useMUSCL = false) =
         new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,boundary,hackinextraflux, useMUSCL)
 end
 

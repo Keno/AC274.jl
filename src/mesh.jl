@@ -77,21 +77,17 @@ next(x::Mesh1D,i) = (x[i],i+1)
 done(x::Mesh1D,i) = i > length(x)
 
 𝜒(m::Mesh1D,k,x) = 2*(x-m.elements[k])/step(m.elements) - 1
-𝜒⁻¹(m::Mesh1D,k,x) = m.elements[k] + (1/2)*(1+x)*(step(m.elements))
+𝜒⁻¹(m::Mesh1D,k,x) = (m.elements[k] + (1/2)*(1+x)*(step(m.elements)))::Float64
 𝜒(m::Mesh1D,c::Cell1D,x) = 𝜒(m,c.coord,x)
 𝜒⁻¹(m::Mesh1D,c::Cell1D,x) = 𝜒⁻¹(m,c.coord,x)
 
 getindex(m::Mesh1D, cell::Int64) = Cell1D(m.elements[cell], m.elements[cell+1], cell)
 getindex(m::Mesh1D, cell::Int64, face) = m[cell][face]
+getindex(m::Mesh1D, cell::Cell1D, face) = cell[face]
 function getindex(c::Cell1D, face)
     @assert face == :r || face == :l
     (face == :r) ? c.right : c.left
 end
-
-coord(face) = face == :l ? -1 : 1
-oppcoord(face) = -coord(face)
-
-oppface(cell::Cell1D,face) = face == :l ? :r : :l
 
 n⁻(face) = face == :l ? -1 : 1
 
@@ -118,7 +114,7 @@ n⁻(face) = face == :l ? -1 : 1
 # types for C(𝕄(Ω)) and E(C) in Ω coordinates.
 #
 
-immutable Cell2D
+immutable Cell2D <: Cell
     cid::Int64
     p1::Vertex2
     p2::Vertex2

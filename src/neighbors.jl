@@ -29,6 +29,12 @@ function neighbor(m::Mesh1D, cell, face)
     end
 end
 
+coord(face) = face == :l ? -1 : 1
+oppcoord(face) = -coord(face)
+
+oppface(cell::Cell1D,face) = face == :l ? :r : :l
+oppface(m::Mesh1D,cell,face) = oppface(cell,face)
+
 # Neighbors in 2D
 
 has_neighbor(m::Meshes.Mesh, edge::Edge; ns = computeNeighbors(m)) = has_neighbor(m,edge,ns)

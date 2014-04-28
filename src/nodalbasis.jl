@@ -8,7 +8,7 @@ nodes(p::DG1D) = nodes1(nbf(p))
 #nodes(p) = [-1,-1/3,1/3,1]
 
 phi1(nodes::Vector) = (x = Poly([0.0,1.0]); Poly{Float64}[Poly([1.0])*prod([k == i ? 1 : (x-nodes[i])/(nodes[k]-nodes[i]) for i=1:length(nodes)]) for k=1:length(nodes)])
-phi(p::DG1D) = phi(nodes(p))
+phi(p::DG1D) = phi1(nodes(p))
 dphi(p::DG1D) = polyder(phi(p))
 
 # 2D nodal basis
@@ -70,7 +70,7 @@ end
 order(x::Array) = length(x)
 
 function evaluate_ref(coeffs,basis,p)
-    order(coeffs) == order(basis) || error("Basis and vector must agree")
+    order(coeffs) == order(basis) || error("Basis and vector must agree (got $basis and $coeffs)")
     result = coeffs[1]*fapply(basis[1],p)
     for i = 2:length(basis)
         result += coeffs[i]*fapply(basis[i],p)

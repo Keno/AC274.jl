@@ -27,7 +27,7 @@ function _solve(p::DG, ℚ; cache = generateMatrices(p))
         if isa(p,DG1D) && p.useMUSCL
             @assert p.p == 1 && isa(p,DG1D) # For now
             for c in p.mesh
-                Qk = ℚ[i,c.coord]
+                Qk = ℚ[i,c.coord,:]
                 ql = evaluate(Qk,basis,coord(:l))
                 qr = evaluate(Qk,basis,coord(:r))
 
@@ -42,7 +42,7 @@ function _solve(p::DG, ℚ; cache = generateMatrices(p))
                 for face in (:l,:r)
                     if has_neighbor(p.mesh,c, face)
                         N = neighbor(p.mesh, c, face)
-                        Qk = ℚ[i,N.coord]
+                        Qk = ℚ[i,N.coord,:]
                         ql = evaluate(Qk,basis,coord(:l))
                         qr = evaluate(Qk,basis,coord(:r))
                         qNbar = (ql+qr)/2
@@ -64,20 +64,20 @@ function _solve(p::DG, ℚ; cache = generateMatrices(p))
                     q1c = [qkbar.q1 for i=1:(p.p+1)]
                 else
                     slope = s*minabsa
-                    q1c = [(qkbar+(node)*(h/2)*slope).q1 for node in cache.ns]
+                    q1c = [(qkbar+(node)*(h/2)*slope).q1 for node in cache.nodes]
                 end
 
                 if abs(s).q2 != 1
                     q2c = [qkbar.q2 for i=1:(p.p+1)]
                 else
                     slope = s*minabsa
-                    q2c = [(qkbar+(node)*(h/2)*slope).q2 for node in cache.ns]
+                    q2c = [(qkbar+(node)*(h/2)*slope).q2 for node in cache.nodes]
                 end
 
                 #@show (s, q1c, q2c)
 
                 cs = typeof(s)[typeof(s)(q1c[i],q2c[i]) for i = 1:length(q1c)]
-                ℚ[i,c.coord] = Coeffs(p.p+1,cs)
+                ℚ[i,c.coord,:] = cs
             end
         end
     end
@@ -121,6 +121,7 @@ function solve(p::DG)
     else
         @assert "Unknown option"
     end
+    @assert eltype(ℚ) != Any
 
     _solve(p,ℚ; cache=cache)
 end

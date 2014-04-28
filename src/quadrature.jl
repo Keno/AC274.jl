@@ -5,15 +5,17 @@ integrate(x::Number, a, b) = x*(b-a)
 
 const gp = Base.gauss(Float64, 7)
 function integrate(f::Function,a, b)
+    gx, gw = gp
     @assert a == -1 && b == 1
-    result = 0.0
-    for (x,w) in zip(gp...)
-        result += w*f(x)
+
+    result = gw[1]*f(gx[1])
+    for i in 2:length(gw)
+        result += gw[i]*f(gx[i])
     end
     result
 end
 
-do_quad_ref(p::DG1D,f::Function) = integrate(f,-1,1)
+do_quad_ref(f::Poly,p::DG1D) = integrate(f,-1,1)
 
 # ElemJacobian
 elemJ(x::DG1D,k) = (1//2)*(x.mesh[k,:r] - x.mesh[k,:l])
