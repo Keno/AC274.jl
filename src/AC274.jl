@@ -1,8 +1,9 @@
 module AC274
 
-export neighbor, has_neighbor, DG1D, DG2D, solve, generateMesh, Mesh1D, 
+export neighbor, has_neighbor, DG1D, DG2D, CG2D, solve, generateMesh, Mesh1D, 
     plotSolution, invchi, chi, 𝜒⁻¹, 𝜒, plotMesh, evaluate, evaluate_ref, interpolate,
-    chi, invchi, vertices
+    chi, invchi, vertices, mesh, nbf, 𝖓, cid, do_quad_ref, ∂, rewriteMesh, calciᴰ, ℳ,
+    𝒩
 
 include("simpletypes.jl")
 include("mesh.jl")
@@ -14,5 +15,7 @@ include("RHS.jl")
 include("solve.jl")
 include("plot1d.jl")
 include("plot2d.jl")
+include("cg.jl")
+
 
 end

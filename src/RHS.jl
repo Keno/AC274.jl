@@ -5,30 +5,32 @@
 ⊖(f,g) = x->fapply(f,x)-fapply(g,x)
 ∘(f,g) = x->fapply(f,fapply(g,x))
 
-Mlocal(p::DG,c,basis) = elemJ(p,c)*Float64[do_quad_ref(⊗(basis[i],basis[j]),p) for i=1:nbf(p), j=1:nbf(p) ]
+Mlocal(p::DG,c,basis) = -elemJ(p,c)*Float64[do_quad_ref(⊗(basis[i],basis[j]),p) for i=1:nbf(p), j=1:nbf(p) ]
 M(p::DG) = (basis = phi(p); Diagonal([Mlocal(p,c,basis) for c in p.mesh]))
 
 # RHS 2D 
 
 type Cache2D
-    phidphi::Array{Array{Vertex2,2},1}
+    phidphi::Array{Array{Vector2{Float64},2},1}
     basis::Array{Function,1}
     dphi::Array{Function,1}
-    nodes::Array{Vertex2,1}
+    nodes::Array{Vector2{Float64},1}
     neighbors::Array{Int64,2}
     Δ1quadpoints::(Array{Float64,1},Array{Float64,1})
     realspacenodes::Array{Array{Vertex2,1},1}
+    elemJ::Array{Float64,1}
 end
 
-function generateMatrices(p::DG2D) 
+function generateMatrices(p::Galerkin2D) 
     pphi, pdphi = phi(p),dphi(p)
     phidphi = [
-        Vertex2[ -elemJ(p,c)*do_quad_ref(x->(pphi[i](x)*inv(Ak(c)')*pdphi[j](x)),p) for i = 1:nbf(p), j = 1:nbf(p)]
+        Vector2{Float64}[ elemJ(p,c)*do_quad_ref(x->(pphi[i](x)*inv(Ak(c)')*pdphi[j](x)),p) for i = 1:nbf(p), j = 1:nbf(p)]
         for c in p.mesh]
     ns = nodes(p)
-    realspacenodes = [[𝜒⁻¹(p.mesh,c,point) for point in ns] for c in p.mesh]
+    realspacenodes = isa(p,DG2D) ? [[𝜒⁻¹(p.mesh,c,point) for point in ns] for c in p.mesh] :
+        [Vertex2[]]
     Cache2D(phidphi, pphi, pdphi, nodes(p), computeNeighbors(p.mesh),
-        Base.gauss(Float64,max(1,2*porder(p))),realspacenodes)
+        Base.gauss(Float64,max(1,2*porder(p))),realspacenodes,[elemJ(p,c) for c in p.mesh])
 end
 
 export n⃗, midp

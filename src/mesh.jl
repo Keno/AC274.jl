@@ -76,12 +76,12 @@ start(x::Mesh1D) = 1
 next(x::Mesh1D,i) = (x[i],i+1)
 done(x::Mesh1D,i) = i > length(x)
 
-# 
+#
 # We parameterize the reference element as the interval [-1,1]
 #
 #                     l                     r
 #                     |----------|----------|
-#                  x= -1         0          1 
+#                  x= -1         0          1
 #
 
 𝜒(m::Mesh1D,k,x) = 2*(x-m.elements[k])/step(m.elements) - 1
@@ -135,13 +135,26 @@ cid(c::Cell2D) = c.cid
 # Edges  
 #
 
+#
+# We currently have two kinds of edges, one kind in real space called `Edge`
+# and one in mesh id coordinates (i.e. endpoints are Vertex IDs for a mesh) called
+# `VEdge`. The analog of Cell2D is to Edge as VEdge is to Meshes.Face. 
+# I may (and probably should) get rid of one of these at some point
+#
+
 immutable Edge
     cid::Int64
     p1::Vertex2
     p2::Vertex2
 end
 
-cid(c::Edge) = c.cid
+immutable VEdge
+    cid::Int64
+    v1::Int64
+    v2::Int64
+end
+
+cid(c::Union(Edge,VEdge)) = c.cid
 
 #
 # Functions to go between edges and their numbering.
@@ -171,6 +184,18 @@ function getindex(x::Cell2D,i)
         (x.p2,x.p3)
     elseif i == 3
         (x.p3,x.p1)
+    else
+        error("Invalid Edge index!")
+    end)...)
+end
+
+function getindex(x::Meshes.Face,i)
+    VEdge((if i == 1
+        (x.v1,x.v2)
+    elseif i == 2
+        (x.v2,x.v3)
+    elseif i == 3
+        (x.v3,x.v1)
     else
         error("Invalid Edge index!")
     end)...)
@@ -243,19 +268,37 @@ end
 
 to2d(m) = Mesh{Vertex2}([(@assert v[3]==0; Vertex2(v[1],v[2])) for v in m.vertices], copy(m.faces))
 
+function rewriteMesh(m::Mesh,iremove)
+    vertmap = Array(Int64,length(m.vertices))
+    newVerts = Array(Vertex2,length(m.vertices)-length(iremove))
+    j = 1
+    for i in 1:length(m.vertices)
+        if !(i in iremove)
+            vertmap[i] = j
+            newVerts[j] = m.vertices[i]
+            j += 1
+        else
+            vertmap[i] = 0
+        end
+    end
+    newFaces = [Face(vertmap[f.v1],vertmap[f.v3],vertmap[f.v2]) for f in m.faces]
+    Meshes.Mesh{Vertex2}(newVerts,newFaces)
+end
+
 export to2d, ∂Ω, ∇I
 
-function ∂Ω(m;ns = computeNeighbors(m))
+function ∂Ω(testf,m;ns = computeNeighbors(m))
     edges = AC274.Edge[]
     for c in m
         for edge in c
             if !has_neighbor(m, edge; ns=ns)
-                push!(edges, edge)
+                testf(edge) && push!(edges, edge)
             end
         end
     end
     edges
 end
+∂Ω(m;ns = computeNeighbors(m)) = ∂Ω(x->true,m;ns = ns)
 
 function ∇I(c,coeffs,p; DP=getDPhi(2))
     #@show AC274_2D.chi(c,p)

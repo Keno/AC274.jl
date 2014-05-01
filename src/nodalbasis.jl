@@ -55,7 +55,7 @@ dphi(p::DG1D) = polyder(phi(p))
 ###########
 
 p0ϕ1(ξ,η) = 1.
-∇p0ϕ1(ξ,η) = Vertex2(0.,0.)
+∇p0ϕ1{T}(ξ::T,η::T) = Vector2{T}(0.,0.)
 const P0 = [p0ϕ1]
 const DP0 = [∇p0ϕ1]
 const N0 = [Vertex2(1//3,1//3)]
@@ -71,13 +71,13 @@ p1ϕ1(ξ,η) = 1 - ξ - η
 p1ϕ2(ξ,η) = ξ
 p1ϕ3(ξ,η) = η
 
-∇p1ϕ1(ξ,η) = [-1,-1]
-∇p1ϕ2(ξ,η) = [1,0]
-∇p1ϕ3(ξ,η) = [0,1]
+∇p1ϕ1{T}(ξ::T,η::T) = Vector2{T}(-1,-1)
+∇p1ϕ2{T}(ξ::T,η::T) = Vector2{T}(1,0)
+∇p1ϕ3{T}(ξ::T,η::T) = Vector2{T}(0,1)
 
 const P1 = [p1ϕ1,p1ϕ2,p1ϕ3]
 const DP1 = [∇p1ϕ1,∇p1ϕ2,∇p1ϕ3]
-const N1 = [Vertex2(0,0),Vertex2(1,0),Vertex2(0,1)]
+const N1 = Vector2{Float64}[Vector2{Float64}(0,0),Vector2{Float64}(1,0),Vector2{Float64}(0,1)]
 
 ## p = 2 ##
 #
@@ -94,16 +94,17 @@ p2ϕ5(ξ,η) = 4.0η*ξ
 p2ϕ6(ξ,η) = 4.0η*(1. - ξ - η)
 
 # TODO: Make Vector2?
-∇p2ϕ1(ξ,η) = Vertex2(4ξ+4η-3,4ξ+4η-3)
-∇p2ϕ2(ξ,η) = Vertex2(4ξ - 1,0)
-∇p2ϕ3(ξ,η) = Vertex2(0,4η - 1)
-∇p2ϕ4(ξ,η) = Vertex2(-8ξ-4η+4,-4ξ)
-∇p2ϕ5(ξ,η) = Vertex2(4η,4ξ)
-∇p2ϕ6(ξ,η) = Vertex2(-4η,-8η-4ξ+4)
+∇p2ϕ1{T}(ξ::T,η::T) = Vector2{T}(4ξ+4η-3,4ξ+4η-3)
+∇p2ϕ2{T}(ξ::T,η::T) = Vector2{T}(4ξ - 1,0)
+∇p2ϕ3{T}(ξ::T,η::T) = Vector2{T}(0,4η - 1)
+∇p2ϕ4{T}(ξ::T,η::T) = Vector2{T}(-8ξ-4η+4,-4ξ)
+∇p2ϕ5{T}(ξ::T,η::T) = Vector2{T}(4η,4ξ)
+∇p2ϕ6{T}(ξ::T,η::T) = Vector2{T}(-4η,-8η-4ξ+4)
 
 const P2 = [p2ϕ1,p2ϕ2,p2ϕ3,p2ϕ4,p2ϕ5,p2ϕ6]
 const DP2 = [∇p2ϕ1,∇p2ϕ2,∇p2ϕ3,∇p2ϕ4,∇p2ϕ5,∇p2ϕ6]
-const N2 = [Vertex2(0,0),Vertex2(1,0),Vertex2(0,1),Vertex2(0.5,0),Vertex2(0.5,0.5),Vertex2(0,0.5)]
+const N2 = Vector2{Float64}[Vector2{Float64}(0.,0.),Vector2{Float64}(1.,0.),Vector2{Float64}(0.,1.),
+            Vector2{Float64}(0.5,0),Vector2{Float64}(0.5,0.5),Vector2{Float64}(0,0.5)]
 
 ### End of P=2 Basis functions
 
@@ -114,9 +115,9 @@ end
 getPhi(p) = (@assert 0 <= p <= 2; p==0 ? P0 : p == 1 ? P1 : P2)
 getDPhi(p) = (@assert 0 <= p <= 2; p==0 ? DP0 : p == 1 ? DP1 : DP2)
 nodes2(p) = (@assert 0 <= p <= 2; p==0 ? N0 : p == 1 ? N1 : N2)
-phi(p::DG2D) = getPhi(porder(p))
-dphi(p::DG2D) = getDPhi(porder(p))
-nodes(p::DG2D) = nodes2(porder(p))
+phi(p::Galerkin2D) = getPhi(porder(p))
+dphi(p::Galerkin2D) = getDPhi(porder(p))
+nodes(p::Galerkin2D) = nodes2(porder(p))
 
 # Evaluating coefficients on a basis
 function evaluate_ref{N,T}(coeffs::Coeffs{N,T},basis)

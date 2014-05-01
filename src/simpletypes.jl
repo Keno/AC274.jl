@@ -68,3 +68,7 @@ dot(a::Vertex2,b::Vertex2) = dot(a.coords,b.coords)
 
 # Manually inlined, because this function is hot in laxcf
 dot(a::Vector2,b::Vertex2) = a.e1*b.coords.e1 + a.e2*b.coords.e2
+
+function (*){T,S}(A::StridedMatrix{T}, x::Vector2{S})
+    Vector2{S}((A*[x[1];x[2]])...)
+end

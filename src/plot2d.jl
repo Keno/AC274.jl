@@ -21,18 +21,10 @@ export vertices
 
 vertices(c::Cell2D) = [c.p1,c.p2,c.p3]
 
-function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = nothing, draw_mesh = false)
+function _drawVertices(cr,vs,transform,colors)
     if colors != nothing 
         @assert length(colors) == length(vs)
     end
-
-    c,cr = setupDrawing(w,h)
-
-    transform = transformf(m,w,h)
-
-    set_source_rgb(cr,0.0,0.0,0.0);    # white
-
-    draw_mesh && _drawMesh(cr,m,w,h,transform=transform)
 
     for i in 1:length(vs)
         v = vs[i]
@@ -41,7 +33,41 @@ function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = 
         circle(cr,vʹ[1],vʹ[2],2.0)
         fill(cr)
     end
+end
 
+function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = nothing, draw_mesh = false)
+    c,cr = setupDrawing(w,h)
+
+    transform = transformf(m,w,h)
+
+    _drawVertices(c,cr,transform,colors)
+
+    set_source_rgb(cr,0.0,0.0,0.0);    # white
+
+    draw_mesh && _drawMesh(cr,m,w,h,transform=transform)
+
+    c
+end
+
+function _drawFaces(cr,faces,tvs; color = color("black"))
+    set_source(cr,color);
+    set_line_width (cr, 1.0);
+
+    for f in faces
+        s = tvs[f.v1][1:2]
+        move_to(cr,s...)
+        line_to(cr,tvs[f.v2][1:2]...)
+        line_to(cr,tvs[f.v3][1:2]...)
+        line_to(cr,s...)
+    end
+    stroke(cr);
+end
+
+function drawFaces(m,faces,w,h)
+    transform = transformf(m,w,h)
+    tvs = map(transform,m.vertices)
+    c,cr = setupDrawing(w,h)
+    _drawFaces(c,cr,faces,tvs)
     c
 end
 
@@ -209,20 +235,20 @@ function pixelwise!(data,m::Meshes.Mesh{Vertex2},w,h,func; bbox=computebbox(m), 
             if ff == 0
                 data[clamp(x,1,w),clamp(y,1,h)] = func(cell,p)
             else 
-                #@show dist
-                mindist = Inf
-                for face in 1:3
-                    has_neighbor(m,cell,face;ns=ns) || continue
-                    nn = neighbor(m,cell,face;ns=ns)
-                    _, ndist = facingface(nn,p)
-                    mindist = min(ndist,mindist)
-                    #@show mindist
-                    contains(nn,p) && assert(mindist == 0.)
-                    mindist == 0. && break
-                end
-                if mindist >= dist-w*h*eps() && data[clamp(x,1,w),clamp(y,1,h)] === naval
-                    data[clamp(x,1,w),clamp(y,1,h)] = func(cell,p)
-                end
+#                #@show dist
+#                mindist = Inf
+#                for face in 1:3
+#                    has_neighbor(m,cell,face;ns=ns) || continue
+#                    nn = neighbor(m,cell,face;ns=ns)
+#                    _, ndist = facingface(nn,p)
+#                    mindist = min(ndist,mindist)
+#                    #@show mindist
+#                    contains(nn,p) && assert(mindist == 0.)
+#                    mindist == 0. && break
+#                end
+#                if mindist >= dist-w*h*eps() && data[clamp(x,1,w),clamp(y,1,h)] === naval
+#                    data[clamp(x,1,w),clamp(y,1,h)] = func(cell,p)
+#                end
             end
         end
     end
@@ -339,6 +365,25 @@ function drawref(w,h,m,cell,coeffs,func; colorize=identity, nump=10)
     c
 end
 
+function drawSupport(pcg::CG2D,k,w=256,h=256;drawMesh=false)
+    m = mesh(pcg)
+    r = Face[]
+    for c in m
+        for i = 1:𝖓(pcg)
+            if ℳ(pcg,c,i) == k
+                push!(r,m.faces[cid(c)])
+            end
+        end
+    end
+    c,cr = AC274.setupDrawing(w,h)
+    transform = AC274.transformf(m,w,h)
+    tvs = map(transform,m.vertices)
+    drawMesh && AC274._drawMesh(cr,m,w,h,transform=transform)
+    AC274._drawFaces(cr,r,tvs; color = drawMesh ? color("blue") : color("black"))
+    AC274._drawVertices(cr,[m.vertices[k]],transform,[color("red")])
+    c
+end
+
 function plotSolution{N,T}(p::DG2D, Q::Array{Coeffs{N,T},2}, t)
     coeffs = Q[t,:]
     plotMesh(p.mesh,256,256; func=function (c,point)
@@ -352,6 +397,28 @@ function plotSolution{T}(p::DG2D, QQ::Array{T,3}, t; tfunc = identity, w =256, h
     coeffs = QQ[t,:,:]
     plotMesh(p.mesh,w,h; func=function (c,point)
         evaluate(tfunc(coeffs[1,c.cid,:]),AC274.getPhi(porder(p)),chi(c,point))
+    end,
+    colorize=AC274.default_colorize,
+    drawMesh=false)
+end
+
+
+dof(m::Meshes.Mesh,c::AC274.Cell2D) = m.faces[cid(c)]
+function ℳ(p::CG2D,c,porder,i)
+    @assert i <= 3 || porder != 1
+    m = mesh(p)
+    dm = p.dualmesh
+    f = dof(m,c)
+    df = dof(dm,c)
+    i == 1 ? f.v1 : i == 2 ? f.v2 : i == 3 ? f.v3 : (length(m.vertices) + (
+    i == 4 ? df.v1 : i == 5 ? df.v2 : i == 6 ? df.v3 : error(BoundsError())))
+end
+ℳ(m::CG2D,c,i) = ℳ(m,c,1,i)
+
+function AC274.plotSolution{T}(p::CG2D, QQ::Array{T,1}; tfunc = identity, w =256, h=256)
+    plotMesh(p.mesh,w,h; func=function (c,point)
+        coeffs = [QQ[ℳ(p,c,porder(p),i)] for i = 1:𝖓(p)]
+        evaluate(tfunc(coeffs),AC274.getPhi(AC274.porder(p)),chi(c,point))
     end,
     colorize=AC274.default_colorize,
     drawMesh=false)

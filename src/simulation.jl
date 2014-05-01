@@ -1,6 +1,9 @@
 abstract Simulation
-abstract DG <: Simulation
+abstract Galerkin <: Simulation
+abstract DG <: Galerkin
+abstract CG <: Galerkin
 
+import Base: show
 
 # 1 Dimensional Discontinuous Galerkin Method
 
@@ -23,8 +26,17 @@ type DG1D <: DG
         new(p,K,a,b,fflux,Δt,nt,C,q₀,mesh,boundary,hackinextraflux, useMUSCL)
 end
 
+function show(io::IO, p::DG1D)
+    println(io,"1 Dimensional Discontinuous Galerkin Simulation:")
+    println(io,"    Ω = [",p.a,",",p.b,"]")
+    println(io," mesh = 1D Uniform (K = ",p.K,")")
+    println(io,"    p = ",p.p)
+    println(io,"   Δt = ",p.Δt)
+    println(io,"   nt = ",p.nt)
+end
+
 porder(p::DG1D) = p.p
-nbf(p::DG1D) = p.p+1
+𝖓(p::DG1D) = p.p+1
 
 zerop(p::DG1D) = zero(Float64)
 numcells(p::DG1D) = p.K
@@ -42,10 +54,29 @@ type DG2D <: DG
     boundary::Function
 end
 
+type CG2D{porder} <: DG
+    mesh::Meshes.Mesh{Vertex2}
+    dualmesh::Meshes.Mesh{Vertex2}
+end
+
+
+const Galerkin2D = Union(CG2D,DG2D)
+
+function show(io::IO, p::Galerkin2D)
+    println(io,"2D Galerkin Simulation:")
+    println(io," mesh = 2D Triangular")
+    println(io,"    p = ",porder(p))
+end
+
 numcells(p::DG2D) = length(p.mesh.faces)
 porder(p::DG2D) = p.porder
+porder{pp}(::CG2D{pp}) = pp
 
-zerop(p::DG2D) = zero(Vertex2)
+zerop(p::Galerkin2D) = zero(Vertex2)
 
 # sum_{k=0}^p (k + n - 1 \choose n - 1) for n = 2
-nbf(p::DG2D) = div((porder(p)+1)*(porder(p)+2),2)
+𝖓(p::Galerkin2D) = div((porder(p)+1)*(porder(p)+2),2)
+
+# Utilities
+const nbf = 𝖓
+mesh(p::Galerkin) = p.mesh
