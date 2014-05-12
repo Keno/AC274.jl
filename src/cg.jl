@@ -47,18 +47,18 @@ function loadV(p::CG2D, is∂D, f, gN, gD, cache=AC274.generateMatrices(p))
     iᴰ = calciᴰ(p,is∂D,cache.neighbors)
     F = loadVbase(p, f, cache)
     apply∂N!(p, F, is∂D, gN, cache)
-    apply∂D!(mesh(p), F, gD, iᴰ)
+    apply∂D!(p, F, gD, iᴰ)
     F
 end
 
 function loadVbase(p::CG2D, f, cache)
     basis, dphi, ns = cache.basis, cache.dphi, cache.nodes
     m = mesh(p)
-    F = zeros(length(m.vertices))
+    F = zeros(𝒩(p))
     
     for c in mesh(p)
         for i = 1:nbf(p)
-            F[ℳ(p,c,i)] += cache.elemJ[cid(c)]*do_quad_ref(x->(f(x)*basis[i](x)),p)
+            F[ℳ(p,c,porder(p),i)] += cache.elemJ[cid(c)]*do_quad_ref(x->(f(x)*basis[i](x)),p)
         end
     end
 
@@ -80,16 +80,21 @@ function apply∂N!(p, F, is∂D, gN, cache)
                     AC274.evaluate_basis2d!(vRHS,p,-gN(face.p1)*factor*w,cpoint⁻)
                 end
                 for i = 1:nbf(p)
-                    F[ℳ(p,c,i)] += vRHS[i]
+                    F[ℳ(p,c,porder(p),i)] += vRHS[i]
                 end
             end
         end    
     end
 end
 
-function apply∂D!(m, F, gD, iᴰ)
+function apply∂D!(p, F, gD, iᴰ)
     idxs = Int64[i for i in iᴰ]
-    F[idxs] = [gD(x) for x in m.vertices[idxs]]
+    for i in idxs
+        v = i > length(p.mesh.vertices) ?
+            p.dualmesh.vertices[i-length(p.mesh.vertices)] : 
+            p.mesh.vertices[i]
+        F[i] = gD(v)
+    end
 end
 
 # Calculate indicies for dirichlet nodes indicated by a given filter function is∂D

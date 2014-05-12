@@ -365,12 +365,15 @@ function drawref(w,h,m,cell,coeffs,func; colorize=identity, nump=10)
     c
 end
 
-function drawSupport(pcg::CG2D,k,w=256,h=256;drawMesh=false)
+drawSupport(pcg::CG2D,k::Int64,w=256,h=256;drawMesh=false) = drawSupport(pcg,[k],w,h;drawMesh=drawMesh)
+
+
+function drawSupport(pcg::CG2D,k::Array{Int64},w=256,h=256;drawMesh=false)
     m = mesh(pcg)
     r = Face[]
     for c in m
         for i = 1:𝖓(pcg)
-            if ℳ(pcg,c,i) == k
+            if ℳ(pcg,c,porder(pcg),i) in k
                 push!(r,m.faces[cid(c)])
             end
         end
@@ -380,7 +383,8 @@ function drawSupport(pcg::CG2D,k,w=256,h=256;drawMesh=false)
     tvs = map(transform,m.vertices)
     drawMesh && AC274._drawMesh(cr,m,w,h,transform=transform)
     AC274._drawFaces(cr,r,tvs; color = drawMesh ? color("blue") : color("black"))
-    AC274._drawVertices(cr,[m.vertices[k]],transform,[color("red")])
+    v = [i > length(m.vertices) ? pcg.dualmesh.vertices[i-length(m.vertices)] : m.vertices[i] for i in k]
+    AC274._drawVertices(cr,v,transform,[color("red") for _ in 1:length(v)])
     c
 end
 

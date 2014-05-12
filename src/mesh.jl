@@ -268,7 +268,7 @@ end
 
 to2d(m) = Mesh{Vertex2}([(@assert v[3]==0; Vertex2(v[1],v[2])) for v in m.vertices], copy(m.faces))
 
-function rewriteMesh(m::Mesh,iremove)
+function rewriteMesh(m::Mesh,iremove; flipOrientation = true)
     vertmap = Array(Int64,length(m.vertices))
     newVerts = Array(Vertex2,length(m.vertices)-length(iremove))
     j = 1
@@ -281,7 +281,9 @@ function rewriteMesh(m::Mesh,iremove)
             vertmap[i] = 0
         end
     end
-    newFaces = [Face(vertmap[f.v1],vertmap[f.v3],vertmap[f.v2]) for f in m.faces]
+    newFaces = [Face(vertmap[f.v1],
+                     vertmap[flipOrientation ? f.v3 : f.v2],
+                     vertmap[flipOrientation ? f.v2 : f.v3]) for f in m.faces]
     Meshes.Mesh{Vertex2}(newVerts,newFaces)
 end
 
