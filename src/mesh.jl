@@ -287,6 +287,23 @@ function rewriteMesh(m::Mesh,iremove; flipOrientation = true)
     Meshes.Mesh{Vertex2}(newVerts,newFaces)
 end
 
+function createDualMesh(m::Mesh)
+    newvertsset = Vertex2[]
+    for f in m.faces
+        push!(newvertsset,(m.vertices[f.v1]+m.vertices[f.v2])./2)
+        push!(newvertsset,(m.vertices[f.v2]+m.vertices[f.v3])./2)
+        push!(newvertsset,(m.vertices[f.v3]+m.vertices[f.v1])./2)
+    end
+    newvertlist = [v for v in unique(newvertsset)]
+    newvertmap = [ newvertlist[i] => i for i=1:length(newvertlist) ]
+    newfaces = [ Face(
+    newvertmap[(m.vertices[f.v1]+m.vertices[f.v2])./2],
+    newvertmap[(m.vertices[f.v2]+m.vertices[f.v3])./2],
+    newvertmap[(m.vertices[f.v3]+m.vertices[f.v1])./2]
+        ) for f in m.faces]
+    Mesh{Vertex2}(newvertlist,newfaces)
+end
+
 export to2d, ∂Ω, ∇I
 
 function ∂Ω(testf,m;ns = computeNeighbors(m))

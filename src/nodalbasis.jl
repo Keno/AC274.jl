@@ -58,7 +58,7 @@ p0ϕ1(ξ,η) = 1.
 ∇p0ϕ1{T}(ξ::T,η::T) = Vector2{T}(0.,0.)
 const P0 = [p0ϕ1]
 const DP0 = [∇p0ϕ1]
-const N0 = [Vertex2(1//3,1//3)]
+const N0 = Vector2{Float64}[Vector2{Float64}(1//3,1//3)]
 
 ## p = 1 ##
 #
@@ -110,6 +110,7 @@ const N2 = Vector2{Float64}[Vector2{Float64}(0.,0.),Vector2{Float64}(1.,0.),Vect
 
 for f in [P0,P1,P2,DP0,DP1,DP2]
     @eval $(f.env.name)(v::Vertex2) = $(f.env.name)(v.coords.e1,v.coords.e2)
+    @eval $(f.env.name)(v::Vector2{Float64}) = $(f.env.name)(v.e1,v.e2)
 end
 
 getPhi(p) = (@assert 0 <= p <= 2; p==0 ? P0 : p == 1 ? P1 : P2)

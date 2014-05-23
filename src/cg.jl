@@ -6,10 +6,10 @@ end
 
 function localstiffness(p::CG2D,c,m::Mesh,cache)
     pdphi = AC274.dphi(p)
-    Al = Array(Float64,𝖓(p),𝖓(p))
+    Al = zeros(Float64,𝖓(p),𝖓(p))
     invA = inv(AC274.Ak(c)')
     for i = 1:𝖓(p), j = 1:𝖓(p)
-        Al[i,j] = 
+        Al[i,j] =
         cache.elemJ[cid(c)]*AC274.do_quad_ref(x->dot(invA*pdphi[i](x),invA*pdphi[j](x)),p)
     end
     Al
@@ -29,7 +29,7 @@ function stiffness{pp}(p::CG2D{pp},is∂D,cache=AC274.generateMatrices(p))
             A[ℳ(p,c,pp,i),ℳ(p,c,pp,j)] += Al[i,j]
         end
     end
-    applyA∂D!(A,calciᴰ(p,is∂D,cache.neighbors))
+    #applyA∂D!(A,calciᴰ(p,is∂D,cache.neighbors))
     A
 end
 
@@ -89,9 +89,11 @@ end
 
 function apply∂D!(p, F, gD, iᴰ)
     idxs = Int64[i for i in iᴰ]
+    𝒩 = length(p.mesh.vertices) + length(p.dualmesh.vertices)
     for i in idxs
+        i > 𝒩 && (i=mod1(i,𝒩))
         v = i > length(p.mesh.vertices) ?
-            p.dualmesh.vertices[i-length(p.mesh.vertices)] : 
+            p.dualmesh.vertices[i-length(p.mesh.vertices)] :
             p.mesh.vertices[i]
         F[i] = gD(v)
     end

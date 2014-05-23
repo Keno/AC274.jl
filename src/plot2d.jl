@@ -427,3 +427,43 @@ function AC274.plotSolution{T}(p::CG2D, QQ::Array{T,1}; tfunc = identity, w =256
     colorize=AC274.default_colorize,
     drawMesh=false)
 end
+
+# Plotting Streamlines for (Navier-)Stokes
+import PyPlot
+
+function plotStreamLines(pu,Fsol)
+    m = mesh(pu)
+    bbox = AC274.computebbox(m)
+
+    w,h = 256, 256
+
+    data = zeros(Int64,w,h)
+    AC274.pixelwise!(data,m,w,h,(cell,p)->cell.cid; bbox=bbox)
+    data
+
+    xps = linspace(bbox.mminx,bbox.mmaxx,w)
+    yps = linspace(bbox.mminy,bbox.mmaxy,h)
+
+    𝒩vel = 𝒩(pu)
+
+    u = Array(Float64,w,h)
+    v = Array(Float64,w,h)
+    for i = 1:w, j=1:h
+        x = xps[i]
+        y = yps[j]
+        cid = data[i,j]
+        if cid == 0
+            u[i,j] = 0
+            v[i,j] = 0
+            continue
+        end
+        c = m[cid]
+        point = Vertex2(x,y)
+        coeffsu = [Fsol[ℳ(pu,c,AC274.porder(pu),k)] for k = 1:𝖓(pu)]
+        coeffsv = [Fsol[𝒩vel+ℳ(pu,c,AC274.porder(pu),k)] for k = 1:𝖓(pu)]
+        u[i,j] = evaluate(coeffsu,AC274.getPhi(AC274.porder(pu)),chi(c,point))
+        v[i,j] = evaluate(coeffsv,AC274.getPhi(AC274.porder(pu)),chi(c,point))
+    end
+    PyPlot.axes(aspect=1)
+    PyPlot.streamplot(xps,yps,u',v',density=5)
+end
