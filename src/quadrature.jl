@@ -66,7 +66,7 @@ end
 do_quad_ref(f::Function,p::Galerkin2D) = do_quad(f,clamp(porder(p)*2,1,4))
 do_quad_ref(f::Function,p::Galerkin2D,edge::Edge) = do_quad_ref(p.mesh,edge,f,porder(p)*2)
 
-do_quad(c::Cell2D, f, p) = -det(Ak(c))*do_quad(x->f(𝜒⁻¹(c,x)),p)
+do_quad(c::Cell2D, f, p) = det(Ak(c))*do_quad(x->f(𝜒⁻¹(c,x)),p)
 function elemJ(p::Galerkin2D,c) 
     d = det(Ak(c))
     d < 0 && error("Misoriented cell")

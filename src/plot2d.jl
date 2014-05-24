@@ -40,7 +40,7 @@ function drawVertices(m::Meshes.Mesh{Vertex2},vs::Vector{Vertex2},w,h; colors = 
 
     transform = transformf(m,w,h)
 
-    _drawVertices(c,cr,transform,colors)
+    _drawVertices(cr,vs,transform,colors)
 
     set_source_rgb(cr,0.0,0.0,0.0);    # white
 
@@ -342,7 +342,7 @@ function drawref(w,h,m,cell,coeffs,func; colorize=identity, nump=10)
         end
     end
 
-    Cairo.image(cr,CairoImageSurface(colorize(data),Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
+    Cairo.image(cr,CairoImageSurface(colorize(data)[1],Cairo.FORMAT_RGB24,flipxy=false),0,0,w,h)
 
     xps = map(round,linspace(0,w,nump))
     yps = map(round,linspace(0,h,nump))

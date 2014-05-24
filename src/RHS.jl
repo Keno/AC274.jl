@@ -5,7 +5,7 @@
 ⊖(f,g) = x->fapply(f,x)-fapply(g,x)
 ∘(f,g) = x->fapply(f,fapply(g,x))
 
-Mlocal(p::DG,c,basis) = -elemJ(p,c)*Float64[do_quad_ref(⊗(basis[i],basis[j]),p) for i=1:nbf(p), j=1:nbf(p) ]
+Mlocal(p::DG,c,basis) = elemJ(p,c)*Float64[do_quad_ref(⊗(basis[i],basis[j]),p) for i=1:nbf(p), j=1:nbf(p) ]
 M(p::DG) = (basis = phi(p); Diagonal([Mlocal(p,c,basis) for c in p.mesh]))
 
 # RHS 2D 
@@ -34,12 +34,6 @@ function generateMatrices(p::Galerkin2D)
 end
 
 export n⃗, midp
-
-function n⃗(f::Edge) 
-    t⃗ = f.p1-f.p2
-    t⃗ ./= norm(t⃗)
-    Vector2{Float64}(t⃗.coords.e2,-t⃗.coords.e1)
-end
 
 n⁻(f::Edge) = n⃗(f::Edge)
 
@@ -152,7 +146,7 @@ function computeFlux!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
 
         # f﹡ϕ_i(x_r)n-
         f = laxcf(p,q⁻,q⁺,cell,face,point,t)
-        #vRHS[:] -= factor*w*f*fapply(basis,cpoint⁻)
+        #vRHS[:] -= -factor*w*f*fapply(basis,cpoint⁻)
         b = evaluate_basis2d!(vRHS,p,-f*factor*w,cpoint⁻)
     end
 end
@@ -173,7 +167,7 @@ function computeBoundary!(vRHS::Array,p::DG2D,cell::Cell2D,face::Edge,Q,t,cache)
 
         f = boundaryflux(p,q⁻,cell,face,point,t)
 
-        #vRHS[:] -= factor*w*f*fapply(basis,cpoint⁻)
+        #vRHS[:] -= -factor*w*f*fapply(cache.basis,cpoint⁻)
         b = evaluate_basis2d!(vRHS,p,-f*factor*w,cpoint⁻)
     end
 end

@@ -16,7 +16,7 @@ function globalSolve{T}(p::DG,MMatrix,Q::Array{T},t,cache)
     k
 end
 
-LHS(p::DG2D,basis) = [factorize(Mlocal(p,c,basis)) for c in mesh(p)]
+LHS(p::Galerkin,basis) = [factorize(Mlocal(p,c,basis)) for c in mesh(p)]
 
 # RK4 Solver
 function _solve(p::Galerkin, ℚ; cache = generateMatrices(p))
@@ -33,14 +33,14 @@ function _solve(p::Galerkin, ℚ; cache = generateMatrices(p))
                 ℚ[i,j,k] = ℚ[i-1,j,k] + p.Δt/6 * (k1[1,j,k]+2*k2[1,j,k]+2*k3[1,j,k]+k4[1,j,k])
             end
         end
-        postProcess!(p, ℚ, cache)
+        postProcess!(p, ℚ, i, cache)
     end
     ℚ
 end
 
 postProcess(args...) = nothing
 
-function postProcess!(p::DG, ℚ, cache)
+function postProcess!(p::DG, ℚ, i, cache)
     # post-processing
     if isa(p,DG1D) && p.useMUSCL
         @assert p.p == 1 && isa(p,DG1D) # For now

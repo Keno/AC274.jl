@@ -64,6 +64,7 @@ dot(a::Vertex2,b::Vertex2) = dot(a.coords,b.coords)
 +(b::Vertex2,a::Vector2{Float64}) = a+b
 ./(a::Vertex2,b::Number) = Vertex2(a.coords./b)
 \(a,b::Vertex2) = (r = a\[b.coords.e1,b.coords.e2]; Vertex2(r[1],r[2]))
+\{T}(a::Array{T,2},b::Vector2{T}) = (r = a\[b.e1,b.e2]; Vector2{T}(r[1],r[2]))
 *(a::Array{Float64,2}, b::Vertex2) = (r=a*[b.coords.e1,b.coords.e2]; Vertex2(r[1],r[2]))
 
 # Manually inlined, because this function is hot in laxcf

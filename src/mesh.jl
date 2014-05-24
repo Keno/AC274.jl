@@ -215,6 +215,14 @@ reverse(e::Edge) = Edge(e.cid,e.p2,e.p1)
 # Computes ||⋅||_2 of the edge
 norm(e::Edge) = norm(e.p2-e.p1)
 
+# Computes the outward normal of an edge
+# We find a vector from p1 to p2 and then rotate it 90 degrees clockwise
+function n⃗(f::Edge)
+    t⃗ = f.p1-f.p2
+    t⃗ ./= norm(t⃗)
+    Vector2{Float64}(-t⃗.coords.e2,t⃗.coords.e1)
+end
+
 #### Iteration over meshes/indexing into meshes
 
 # Create a cell from a mesh face (in the Meshes.Face sense)
